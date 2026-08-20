@@ -22,6 +22,7 @@ import threading
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from anima.core import Context, Plugin
+from anima.events import EventNames
 from anima.utils import log
 
 _log = log.get("bridge")
@@ -70,6 +71,9 @@ class BridgePlugin(Plugin):
     async def load(self, ctx: Context) -> None:
         self._ctx = ctx
         ctx.provide("bridge", self)
+        # 模组热重载 → 窗口刷新(帧源/角色/皮肤随注册表重建)
+        ctx.on(EventNames.MODS_RELOADED,
+               lambda _data: self.run_on_ui(self._win.refresh_from_registry))
 
     async def enable(self) -> None:
         """依赖就绪: 把窗口接到 actions/rule_engine, 注册表现动作并刷新。"""
