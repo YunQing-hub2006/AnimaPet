@@ -1,0 +1,8 @@
+{
+  "id": "feature.hello",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "打招呼演示",
+  "description": "演示 AnimaPet 功能模组契约: 菜单项 + 事件 + 台词 + 状态持久化",
+  "main": "plugin.py"
+}

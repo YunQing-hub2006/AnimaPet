@@ -10,6 +10,13 @@ class PathGuardError(ValueError):
 
 _BASE = os.path.normpath(paths.BASE_DIR)
 _DOTDOT = chr(46)+chr(46)
+def _copy_defaults(d):
+    """递归复制默认值: 合并产物与模块级默认(如 DEFAULT_CONFIG)彻底解耦,
+    防止运行时点路径写入污染后续 load 的默认值。"""
+    out = {}
+    for k, v in d.items():
+        out[k] = _copy_defaults(v) if isinstance(v, dict) else v
+    return out
 def _guard(path):
     norm = str(path).replace(chr(92),"/")
     if _DOTDOT in norm.split("/"):
@@ -27,7 +34,7 @@ def load(path, default):
         with open(p,"r",encoding="utf-8-sig") as f:
             data = json.load(f)
         if isinstance(default,dict) and isinstance(data,dict):
-            merged = dict(default)
+            merged = _copy_defaults(default)
             for k,v in data.items():
                 if k in merged and isinstance(merged[k],dict) and isinstance(v,dict):
                     merged[k].update(v)
@@ -37,7 +44,7 @@ def load(path, default):
         return data
     except Exception as e:
         _log.warning("load_json %s failed: %s",path,e)
-        return dict(default) if isinstance(default,dict) else default
+        return _copy_defaults(default) if isinstance(default,dict) else default
 def save(path, data):
     try:
         p=_guard(path)

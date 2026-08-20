@@ -90,8 +90,9 @@ class ConfigPlugin(Plugin):
     version = "1.0.0"
     dependencies: list[str] = []
 
-    def __init__(self) -> None:
-        self._svc = ConfigService()
+    def __init__(self, service: ConfigService | None = None) -> None:
+        # main.py/集成测试可注入预建服务(与 PetWindow 共享同一实例)
+        self._svc = service if service is not None else ConfigService()
         self._ctx: Context | None = None
 
     async def load(self, ctx: Context) -> None:

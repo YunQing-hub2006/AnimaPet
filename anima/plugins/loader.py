@@ -23,13 +23,15 @@ class LoaderPlugin(Plugin):
     version = "1.0.0"
     dependencies = ["config"]
 
-    def __init__(self) -> None:
-        self._registry = Registry()
+    def __init__(self, registry: Registry | None = None) -> None:
+        # main.py/集成测试可注入预建注册表(与 PetWindow 共享同一实例)
+        self._registry = registry if registry is not None else Registry()
         self._ctx: Context | None = None
 
     async def load(self, ctx: Context) -> None:
         self._ctx = ctx
         ctx.provide("mods", self._registry)
+        ctx.provide("loader", self)   # module_manager 经此调用 rescan
         self.scan()
 
     async def enable(self) -> None:

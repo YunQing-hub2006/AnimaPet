@@ -49,8 +49,9 @@ class ActionsPlugin(Plugin):
     version = "1.0.0"
     dependencies = ["state"]
 
-    def __init__(self) -> None:
-        self._reg = ActionRegistry()
+    def __init__(self, registry: ActionRegistry | None = None) -> None:
+        # main.py/集成测试可注入预建注册表(与 PetWindow 共享同一实例)
+        self._reg = registry if registry is not None else ActionRegistry()
         self._ctx: Context | None = None
 
     async def load(self, ctx: Context) -> None:

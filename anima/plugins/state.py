@@ -69,8 +69,9 @@ class StatePlugin(Plugin):
     version = "1.0.0"
     dependencies = ["config"]
 
-    def __init__(self) -> None:
-        self._svc = StateService()
+    def __init__(self, service: StateService | None = None) -> None:
+        # main.py/集成测试可注入预建服务(与 PetWindow 共享同一实例)
+        self._svc = service if service is not None else StateService()
         self._ctx: Context | None = None
 
     async def load(self, ctx: Context) -> None:
