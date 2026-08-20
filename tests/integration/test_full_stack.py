@@ -133,3 +133,38 @@ def test_td1_cross_thread_run_on_ui(real_env, qapp):
             loop.call_soon_threadsafe(loop.stop)
         thread.join(10)
     assert not thread.is_alive()
+
+
+def test_rescan_from_qt_thread_goes_to_kernel(real_env, qapp):
+    """A2 回归: Qt 线程调 mm.rescan() 不得直改注册表(竞态), 必须经内核循环
+    调度并等待完成; 重扫后规则索引/订阅仍生效。"""
+    core, plugins, pet, _bridge = main._build_stack()
+    reloaded = []
+    core.bus.subscribe("mods.reloaded", lambda d: reloaded.append(d))
+    holder = {"loop": None, "started": threading.Event(), "error": None}
+    thread = threading.Thread(
+        target=main._kernel_main, args=(core, plugins, holder),
+        daemon=True, name="anima-kernel-test")
+    thread.start()
+    try:
+        assert holder["started"].wait(15)
+        assert holder["error"] is None
+
+        mm = core.registry.use("module_manager")
+        fut = mm.rescan()          # 本线程是 Qt 主线程, 非内核线程 → 调度到内核循环
+        assert fut is not None
+        fut.result(10)             # 内核线程完成重扫
+
+        assert reloaded             # mods.reloaded 已在内核线程发出
+        assert len(core.registry.use("mods").all_mods) == 20
+        assert core.lifecycle.get_state("feature.hello") == "enabled"
+
+        # 重扫后规则引擎索引重建且可用(emit 走 Qt 线程, 无并发写注册表)
+        core.bus.emit("timer.sit")
+        assert pet.bubble._full in SIT_LINES
+    finally:
+        loop = holder.get("loop")
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+        thread.join(10)
+    assert not thread.is_alive()

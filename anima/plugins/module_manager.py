@@ -73,9 +73,29 @@ class ModuleManagerService:
     # -- 装配 -------------------------------------------------------------
 
     def bind(self, ctx: Context, loop=None) -> None:
-        """插件 load 阶段调用: 记录内核 Context 与事件循环(main.py 传入)。"""
+        """插件 load 阶段调用: 记录内核 Context 与事件循环(main.py 传入)。
+
+        只增不改: load 在 bind_loop 之后执行(main.py 先注入循环再 start),
+        这里不能用 None 覆盖已绑定的内核循环。
+        """
         self._ctx = ctx
+        if loop is not None:
+            self._loop = loop
+
+    def bind_loop(self, loop) -> None:
+        """绑定内核事件循环(main.py 内核线程创建 loop 后调用; fire/rescan 跨线程调度依赖)。"""
         self._loop = loop
+
+    def _is_kernel_thread(self) -> bool:
+        """当前线程是否可安全直改注册表: 有运行循环且就是内核循环。
+
+        测试单线程场景(内核循环引用为 None)里, 只要有运行循环就视为内核线程。
+        """
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        return self._loop is None or running is self._loop
 
     def fire(self, coro):
         """跨线程调度协程(不阻塞调用方)。
@@ -161,7 +181,7 @@ class ModuleManagerService:
         if isinstance(mod, FeatureMod):
             await self._set_feature_enabled(mod, bool(on))
         else:
-            self._ctx.use("loader").rescan()
+            self.rescan()   # 线程感知: 内核线程同步重建, 其他线程调度到内核循环
 
     def _write_enabled(self, mod_id: str, on: bool) -> None:
         cfg = self.config
@@ -207,8 +227,20 @@ class ModuleManagerService:
 
     # -- 重扫与 feature 对账 ---------------------------------------------
 
-    def rescan(self) -> None:
-        """重扫 mods/ 并广播 mods.reloaded(feature 对账由事件驱动, 见 sync_features)。"""
+    def rescan(self):
+        """重扫 mods/ 并广播 mods.reloaded。
+
+        注册表重建必须在内核线程完成 —— 内核线程的规则引擎正在遍历注册表,
+        其他线程直接改会引发 dict 迭代竞态。因此: 内核线程同步执行并返回
+        None; 其他线程(如管理对话框的 Qt 线程)经 fire 调度到内核循环,
+        返回 concurrent Future 供调用方等待完成(如 ``fut.result(5)``)。
+        """
+        if self._is_kernel_thread():
+            self._do_rescan()
+            return None
+        return self.fire(self.a_rescan())
+
+    def _do_rescan(self) -> None:
         self._ctx.use("loader").rescan()
 
     async def a_rescan(self) -> None:
@@ -351,6 +383,10 @@ class ModuleManagerPlugin(Plugin):
         self._svc = service if service is not None else ModuleManagerService()
         self._loop = loop
         self._ctx: Context | None = None
+
+    def bind_loop(self, loop) -> None:
+        """内核线程建好 asyncio 循环后绑定(main.py 调用)。"""
+        self._svc.bind_loop(loop)
 
     async def load(self, ctx: Context) -> None:
         self._ctx = ctx

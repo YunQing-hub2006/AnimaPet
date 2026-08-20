@@ -243,3 +243,15 @@ async def test_list_mods_summary(mm_env):
     assert any(i["id"] == "feature.demo" and i["feature"] and i["enabled"] for i in items)
     assert any(i["id"] == "ui.default" and i["type"] == "ui" for i in items)
     await app.stop()
+
+
+async def test_rescan_sync_on_kernel_thread(mm_env):
+    """内核线程(有运行循环)上 rescan() 同步执行、返回 None 并立即重建注册表。"""
+    app, _, _, _, _, mods_dir = mm_env
+    mm = await start(mm_env)
+    (mods_dir / "ui.dark").mkdir()
+    (mods_dir / "ui.dark" / "manifest.json").write_text(json.dumps({
+        "id": "ui.dark", "type": "ui", "name": "暗色", "theme": {}}), encoding="utf-8")
+    assert mm.rescan() is None
+    assert mm.registry.uis.get("ui.dark") is not None   # 已同步生效
+    await app.stop()

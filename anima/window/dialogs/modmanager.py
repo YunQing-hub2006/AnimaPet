@@ -310,9 +310,20 @@ class ModsDialog(QDialog):
     # ------------------------------------------------------------------
     # 保存 / 重扫
     # ------------------------------------------------------------------
+    def _wait_rescan(self, fut):
+        """rescan 在 Qt 线程被调度到内核循环执行; 阻塞等它完成(上限 5s)再重建列表。
+
+        kernel 侧的重扫不依赖 Qt 泵事件(run_on_ui 只入队不等待), 故此处不会死锁。
+        """
+        if fut is None:   # 已同步完成(内核线程直调)
+            return
+        try:
+            fut.result(5)
+        except Exception as e:
+            _log.warning("rescan: %s", e)
+
     def _rescan(self):
-        self.mm.rescan()
-        self.mm.fire(self.mm.a_rescan())
+        self._wait_rescan(self.mm.rescan())
         self._changes = {}
         self._build_list()
 
@@ -323,8 +334,7 @@ class ModsDialog(QDialog):
             enabled.update(self._changes)
             cfg.set("mods.enabled", enabled)
             cfg.save()
-        self.mm.rescan()
-        self.mm.fire(self.mm.a_rescan())
+        self._wait_rescan(self.mm.rescan())
         QMessageBox.information(self, "完成", "模组已热重载。")
         self.accept()
 
@@ -455,8 +465,9 @@ class NewRuleTemplateDialog(QDialog):
                     "then": [{"say": "（把这里换成你的规则台词）"}],
                 }],
             })
-            self.mm.rescan()
-            self.mm.fire(self.mm.a_rescan())
+            fut = self.mm.rescan()
+            if fut is not None:
+                fut.result(5)
             self.created_id = mid
             self.accept()
         except Exception as e:

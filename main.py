@@ -84,6 +84,10 @@ def _kernel_main(core, plugins, holder):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     holder["loop"] = loop
+    # 把内核循环注入 module_manager: Qt 线程的 fire()/rescan() 跨线程投递依赖它
+    for plugin in plugins:
+        if plugin.name == "module_manager":
+            plugin.service.bind_loop(loop)
     try:
         loop.run_until_complete(core.start(plugins))
         holder["started"].set()

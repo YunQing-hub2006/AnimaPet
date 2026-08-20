@@ -92,6 +92,7 @@ class RuleEngine:
         self._char_id = ""       # 当前角色 id, 由运行时刷新时同步
         self._last_fired = {}    # (mod_id, rule_idx) -> ts
         self._subscribed = {}    # event -> handler(供 refresh 差量重建)
+        self._index = {}         # event -> [(mod, idx, rule)](分发索引, refresh 重建)
 
     def bind(self, bus, registry, state, config, actions, debug_rules=None):
         """接入总线/注册表/状态/配置/动作注册表(插件 enable 阶段调用)。"""
@@ -109,19 +110,26 @@ class RuleEngine:
     # ------------------------------------------------------------------
 
     def refresh(self):
-        """按当前启用行为规则的 on 事件名差量重建订阅(注册表热重载后调用)。"""
+        """按当前启用行为规则重建 事件索引 + 订阅(注册表热重载后调用)。"""
         if self._bus is None or self._reg is None:
             return
         events = set()
+        index = {}
         for mod in self._reg.behaviors.values():
-            for rule in mod.rules:
+            for idx, rule in enumerate(mod.rules):
                 if not isinstance(rule, dict):
                     continue
                 on = rule.get("on")
                 if isinstance(on, str):
-                    events.add(on)
+                    names = [on]
                 elif isinstance(on, list):
-                    events.update(str(x) for x in on)
+                    names = [str(x) for x in on]
+                else:
+                    names = []
+                for n in names:
+                    events.add(n)
+                    index.setdefault(n, []).append((mod, idx, rule))
+        self._index = index
         for ev, handler in list(self._subscribed.items()):
             if ev not in events:
                 self._bus.unsubscribe(ev, handler)
@@ -132,7 +140,8 @@ class RuleEngine:
             handler = (lambda payload, e=ev: self._handle(e, payload))
             self._bus.subscribe(ev, handler)
             self._subscribed[ev] = handler
-        _log.info("rules subscribed: %d events", len(self._subscribed))
+        _log.info("rules subscribed: %d events, %d rules indexed",
+                  len(self._subscribed), sum(len(v) for v in index.values()))
 
     def unsubscribe_all(self):
         """退订全部事件(插件 disable/unload 清理)。"""
@@ -141,6 +150,7 @@ class RuleEngine:
         for ev, handler in list(self._subscribed.items()):
             self._bus.unsubscribe(ev, handler)
         self._subscribed.clear()
+        self._index = {}
 
     # ------------------------------------------------------------------
     # 事件处理
@@ -152,17 +162,23 @@ class RuleEngine:
 
     def _handle(self, name, payload):
         try:
-            for mod in list(self._reg.behaviors.values()):
+            entries = self._index.get(name)
+            if not entries:
+                return
+            ctx = None   # 懒快照: 每条事件只建一次, 且仅当确有规则需要
+            for mod, idx, rule in entries:
                 # 角色归属: 声明了 character 且 ≠ 当前角色的模组不触发; 全局(空)不受影响
                 if mod.character and mod.character != self._char_id:
                     continue
-                for idx, rule in enumerate(mod.rules):
-                    if isinstance(rule, dict):
-                        self._try_rule(mod.id, idx, rule, name, payload)
+                if ctx is None:
+                    ctx = {"state": dict(self._state.data),
+                           "event": dict(payload or {}),
+                           "config": dict(self._config.data)}
+                self._try_rule(mod.id, idx, rule, name, payload, ctx)
         except Exception as e:
             _log.warning("rule dispatch failed: %s", e)
 
-    def _try_rule(self, mod_id, idx, rule, name, payload):
+    def _try_rule(self, mod_id, idx, rule, name, payload, ctx):
         events = rule.get("on")
         if isinstance(events, str):
             events = [events]
@@ -175,9 +191,6 @@ class RuleEngine:
         key = (mod_id, idx)
         if cooldown > 0 and time.time() - self._last_fired.get(key, 0) < cooldown:
             return
-        ctx = {"state": dict(self._state.data),
-               "event": dict(payload or {}),
-               "config": dict(self._config.data)}
         for cond_key in ("when", "if"):
             cond = rule.get(cond_key)
             if cond is None or str(cond).strip() == "":
