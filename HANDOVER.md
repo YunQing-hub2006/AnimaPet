@@ -30,15 +30,16 @@
 | `fbc864e` | HANDOVER 补 A 档修复经验 |
 | `b256f26` | hotreload + character_manager + bridge 补窗口热刷新订阅 |
 | `7b20531` | 五个功能模组平移 + 设置对话框 + 迁移工具（本交接前最后一个功能 commit） |
+| `120bc07` | **真机反馈修复**：关闭辅助窗口不再退出宠物（quitOnLastWindowClosed=False + closeEvent→quit）+ ModsDialog 删除功能 + 对话框等待 Task/Future 兼容 |
 
 ### 当前测试状态
 
 ```
-pytest tests/   →  216 passed
+pytest tests/   →  219 passed
   113 内核 + 10 utils + 7 基础插件 + 12 mods 层 + 4 loader 插件
-  + 18 rule_engine/safe_eval + 11 window/bridge + 12 module_manager(含设置对话框)
+  + 18 rule_engine/safe_eval + 11 window/bridge + 14 module_manager(含设置/删除对话框)
   + 8 hotreload/character_manager + 7 功能模组 + 5 ui 皮肤 + 4 迁移工具
-  + 5 集成(全链路/跨线程/TD1/对等回归)
+  + 6 集成(全链路/跨线程/TD1/对等回归/退出策略)
 check_kernel_rules.py → 785 行、纯标准库（过）
 migrate CLI dry-run → 对真实 YingPet 目录只读规划正常
 ```
@@ -53,7 +54,8 @@ migrate CLI dry-run → 对真实 YingPet 目录只读规划正常
   0 错误；帧数精确断言（idle 50 / talk 60）、归属隔离、行为开关、人设写回重扫
   全部过对等回归。
 - **注意**：用户真机正在运行的实例是旧代码（22:21 启动），**重启后**才会带上
-  本批功能（5 新功能模组菜单 + 热加载 + 角色切换服务）。
+  本批功能（5 新功能模组菜单 + 热加载 + 角色切换服务）；真机反馈的两处问题
+  （关闭辅助窗口退出宠物 / 缺删除入口）已在 `120bc07` 修复，同样需重启生效。
 
 ---
 
@@ -185,6 +187,19 @@ cd E:\Zcode-work\AnimaPet
 
 ## 七、坑与经验（本会话实录）
 
+- **quitOnLastWindowClosed 会"杀死"常驻宠物**：宠物窗口是 Qt.Tool 型**不参与**
+  "最后一个窗口"计数，而打包/待办等功能窗口是无父窗口的普通 QWidget（参与计数）。
+  默认 True 时，关掉打包窗口 = 关闭最后一个计数窗口 = 整个宠物退出（真机反馈
+  实锤）。已改 `main._configure_qt` → False，退出只走右键菜单 quit /
+  PetWindow.closeEvent→quit。
+- **asyncio.Task.result() 不接受超时参数**：`fire()` 在单线程测试环境返回
+  asyncio.Task（生产跨线程才返回 concurrent Future），`fut.result(10)` 会直接
+  TypeError（不是 InvalidStateError）→ 误入失败分支弹警告框阻塞。对话框统一
+  走 `_wait_fire()`：Task 用无参 result() 并容忍 InvalidStateError（外层事件
+  循环推动），concurrent Future 用带超时 result()。
+- **删除功能是用户刚需**：ModsDialog 行内右键有"删除模组…"（确认 → feature
+  先内核卸载 → rmtree → 热重载）；第三方 feature 模组若 `from core import ...`
+  （v2 时代写法）会加载失败（No module named 'core'），契约是 `from anima...`。
 - **QObject 线程亲和性**：hotreload 的 QFileSystemWatcher 若在内核线程创建，
   directoryChanged 信号永远不送达（内核线程只有 asyncio 循环）。凡 Qt 对象
   一律经 `bridge.run_on_ui` 在 Qt 线程创建（见 hotreload 插件）。
