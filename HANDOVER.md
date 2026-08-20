@@ -23,6 +23,8 @@
 | `5403daf` | loader 插件：扫描->enabled 分流->provide("mods")，rescan 广播 mods.reloaded |
 | `0d1e753` | HANDOVER 第 3 版 |
 | `d1c276c` | **本会话主体**：rule_engine+safe_eval 插件、window 三件套搬运、bridge 双线程桥、module_manager 总管理器（+feature.hello 改写 + ModsDialog + jsonio 默认值隔离修复 + 39 个新测试） |
+| `a8b84e9` | main.py 双线程启动序 + run.bat + 全链路集成测试；PLAN 回填；HANDOVER 第 4 版 |
+| `8a6eb8a` | **A 档修复（内核不动）**：loop 注入 module_manager（bind 只增不改）、rescan 线程感知调度（Qt 线程经内核循环 + Future 等待，消竞态）、规则引擎事件索引 + 每事件一次快照（+2 测试，190 全绿） |
 
 ### 当前测试状态
 
@@ -186,6 +188,14 @@ cd E:\Zcode-work\AnimaPet
 
 ## 七、坑与经验（本会话实录）
 
+- **跨线程改注册表的唯一合法路径**：`module_manager.rescan()` 线程感知——内核线程
+  同步执行并返回 None，其他线程经 `fire` 调度到内核循环并返回 Future
+  （对话框 `fut.result(5)` 等待；内核侧重扫不依赖 Qt 泵事件，不会死锁）。
+  `fire` 依赖内核循环注入：main.py 在 `_kernel_main` 里 `plugin.bind_loop(loop)`，
+  且 `Service.bind()` **只增不改**（load 晚于 bind_loop，用 None 覆盖会复活
+  "fire dropped" 静默失效）。
+- **规则引擎分发索引**：`refresh()` 重建 `{事件名: [(mod, idx, rule)]}`，
+  `_handle` 只遍历命中项；state/event/config 快照每事件懒建一次。
 - **内核总线通配订阅收不到事件名**：`EventBus.emit(event, data)` 只把 data
   传给 handler。规则引擎因此改按 `on` 事件名逐个订阅；任何需要事件名的
   监听场景都要走显式订阅（见二.2）。
