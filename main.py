@@ -118,10 +118,21 @@ def main():
         sys.exit(1)
 
 
+def _configure_qt(app):
+    """常驻应用策略: 关闭辅助窗口(打包/待办等无父窗口)不得退出整个宠物。
+
+    宠物窗口是 Qt.Tool 型, 不参与"最后一个窗口"计数 —— 若保持
+    quitOnLastWindowClosed=True, 关掉打包窗口就会把整个宠物带走。
+    退出只走两条显式路径: 右键菜单"退出"(直接 quit) / 关闭宠物窗口
+    (PetWindow.closeEvent → quit)。
+    """
+    app.setQuitOnLastWindowClosed(False)
+
+
 def _run():
     log.setup()
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(True)
+    _configure_qt(app)
 
     def excepthook(tp, val, tb):
         _log.error("UNCAUGHT: %s", "".join(traceback.format_exception(tp, val, tb)))

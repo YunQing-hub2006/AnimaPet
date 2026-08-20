@@ -350,3 +350,6 @@ class PetWindow(QWidget):
         except Exception:
             pass
         super().closeEvent(e)
+        # 关闭宠物窗口 = 显式退出(配合 quitOnLastWindowClosed=False:
+        # 辅助窗口关闭不再带走应用, 退出权收回到这里与右键菜单)
+        QGuiApplication.instance().quit()

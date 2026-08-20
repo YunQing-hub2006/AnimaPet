@@ -5,6 +5,7 @@
 开关保存走 config 服务; 导入/导出走 anima.mods.packer; 热重载走
 ``mm.rescan()``(注册表同步重建)+ ``mm.fire(mm.a_rescan())``(feature 对账)。
 """
+import asyncio
 import os
 import re
 import shutil
@@ -310,15 +311,32 @@ class ModsDialog(QDialog):
     # ------------------------------------------------------------------
     # 保存 / 重扫
     # ------------------------------------------------------------------
+    def _wait_fire(self, fut, timeout=10):
+        """等待 fire() 的调度结果。
+
+        fire 有两种返回: 跨线程(生产, Qt 线程)→ concurrent Future(带超时);
+        单线程测试 → asyncio.Task(``result()`` 不接受超时参数, 未完成抛
+        InvalidStateError, 由外层事件循环推动, 调用方 await 后再断言)。
+        """
+        if fut is None:   # 内核线程已同步执行
+            return
+        if isinstance(fut, asyncio.Task):
+            try:
+                fut.result()
+            except asyncio.InvalidStateError:
+                pass
+            except Exception as e:
+                raise e
+        else:
+            fut.result(timeout)
+
     def _wait_rescan(self, fut):
-        """rescan 在 Qt 线程被调度到内核循环执行; 阻塞等它完成(上限 5s)再重建列表。
+        """rescan 在 Qt 线程被调度到内核循环执行; 阻塞等它完成(上限 10s)再重建列表。
 
         kernel 侧的重扫不依赖 Qt 泵事件(run_on_ui 只入队不等待), 故此处不会死锁。
         """
-        if fut is None:   # 已同步完成(内核线程直调)
-            return
         try:
-            fut.result(5)
+            self._wait_fire(fut, timeout=10)
         except Exception as e:
             _log.warning("rescan: %s", e)
 
@@ -368,7 +386,31 @@ class ModsDialog(QDialog):
             act_skin = QAction("设为当前皮肤", self)
             act_skin.triggered.connect(lambda _=False, i=mid: self._set_current_skin(i))
             menu.addAction(act_skin)
+        menu.addSeparator()
+        act_delete = QAction("删除模组…", self)
+        act_delete.triggered.connect(lambda _=False, i=mid: self._delete_mod(i))
+        menu.addAction(act_delete)
         menu.exec(self.listw.viewport().mapToGlobal(pos))
+
+    def _delete_mod(self, mid):
+        """删除模组(feature 先走内核卸载, 再删 mods/ 文件夹, 最后热重载)。"""
+        m = self._row_meta.get(mid)
+        name = str(getattr(m, "name", "") or mid)
+        if QMessageBox.question(
+                self, "删除模组",
+                "确定删除模组「%s」(%s)?\n将同时删除 mods/ 下的文件夹, 不可恢复。" % (name, mid),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        fut = self.mm.fire(self.mm.delete_mod(mid))
+        try:
+            self._wait_fire(fut, timeout=10)
+        except Exception as e:
+            _log.warning("delete %s: %s", mid, e)
+            QMessageBox.warning(self, "删除失败", str(e))
+            return
+        self._changes.pop(mid, None)
+        self._build_list()
 
     def _export_mod(self, mid):
         dest, _ = QFileDialog.getSaveFileName(

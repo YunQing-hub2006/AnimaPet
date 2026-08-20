@@ -4,6 +4,7 @@
 对账语义(与 YingPet 一致): feature 禁用 = 完整卸载(副作用回滚、菜单移除),
 再启用 = 全新实例重新 on_load —— 私有数据经 feature_data 跨周期保留。
 """
+import asyncio
 import json
 import os
 import zipfile
@@ -282,4 +283,46 @@ async def test_settings_dialog_saves_config_and_char_prompt(mm_env, qapp):
     assert mm.config.get("api.reasoning_effort") == "medium"
     manifest = json.loads((mods_dir / "card.ying" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["system_prompt"] == "新人设"
+    await app.stop()
+
+
+async def test_mods_dialog_delete_mod(mm_env, qapp, monkeypatch):
+    """ModsDialog 删除功能: 确认后 feature 先卸载、文件夹删除、注册表移除。"""
+    app, _, _, _, _, mods_dir = mm_env
+    mm = await start(mm_env)
+    from PyQt6.QtWidgets import QMessageBox
+    from anima.window.dialogs.modmanager import ModsDialog
+    asked = []
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: (asked.append(a) or QMessageBox.StandardButton.Yes)))
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    dlg = ModsDialog(mm)
+    assert any(mid == "feature.demo" for mid, _cb, _it in dlg._rows)
+    dlg._delete_mod("feature.demo")
+    assert asked                                   # 删除前有确认框
+    await asyncio.sleep(0)                          # fire 排队的 delete 完成
+    assert all(m.id != "feature.demo" for m in mm.registry.all_mods)
+    assert not (mods_dir / "feature.demo").exists()  # 文件夹已删
+    assert app.lifecycle.get_state("feature.demo") == "unloaded"
+    await app.stop()
+
+
+async def test_mods_dialog_delete_cancelled(mm_env, qapp, monkeypatch):
+    """删除确认选 No → 模组原样保留。"""
+    app, _, _, _, _, mods_dir = mm_env
+    mm = await start(mm_env)
+    from PyQt6.QtWidgets import QMessageBox
+    from anima.window.dialogs.modmanager import ModsDialog
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    dlg = ModsDialog(mm)
+    dlg._delete_mod("feature.demo")
+    await asyncio.sleep(0)
+    assert any(m.id == "feature.demo" for m in mm.registry.all_mods)
+    assert (mods_dir / "feature.demo").exists()
     await app.stop()

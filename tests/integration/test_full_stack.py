@@ -29,6 +29,12 @@ def qapp():
     yield app
 
 
+def test_configure_qt_keeps_app_alive_on_window_close(qapp):
+    """回归: 关闭辅助窗口(打包/待办等)不得退出整个宠物(宠物窗是 Qt.Tool 不参与最后窗口计数)。"""
+    main._configure_qt(qapp)
+    assert qapp.quitOnLastWindowClosed() is False
+
+
 @pytest.fixture
 def real_env(tmp_path, monkeypatch):
     """真实 mods/(仓库 E: 盘)+ 重定向 data(tmp 在 C: 盘): 两者无法同处一个
