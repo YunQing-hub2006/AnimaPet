@@ -10,20 +10,22 @@
 
 ## 一、本次会话做了什么
 
-### 已完成（3 个 commit）
+### 已完成（4 个 commit）
 
 | commit | 内容 |
 |---|---|
 | `8c8a899` | Phase 0 建仓：目录骨架、内核 v1.1 九模块 + 113 个内核测试复制安置、`check_kernel_rules.py`（785 行 <1000、纯标准库，全过）、独立 venv（Python 3.13.0，PyQt6 6.11/pydantic 2.13/requests/pytest 系已装）、utils 四件套（paths 改 data/ 目录、log 显式 setup()、jsonio **白名单+防穿越加固**、theme 原样）、`anima/events.py` 常量表（YingPet 20 事件 + plugin.enabled/disabled）、10 个 utils 测试 |
-| `d6e08e5` | config/state 两个基础插件：`ConfigService`（点路径 get/set、原子保存）、`StateService`（change 漏斗=改内存→落盘→emit `state.changed`、inc、dict 协议）、冒烟通过（拓扑排序纠正了故意反转的注册顺序） |
-| （未提交） | **HANDOVER.md 本文件** |
+| `d6e08e5` | config/state 两个基础插件：`ConfigService`（点路径 get/set、原子保存）、`StateService`（change 漏斗=改内存->落盘->emit `state.changed`、inc、dict 协议）、冒烟通过（拓扑排序纠正了故意反转的注册顺序） |
+| `36210df` | 本交接文档 |
+| （本次） | actions 插件：`ActionRegistry`（YingPet 30 行搬运）+ 内置动作 state_inc/state_set/emit（enable 阶段注册、disable 移除）；7 个插件测试（数据路径重定向 tmp 防串扰） |
 
 ### 当前测试状态
 
 ```
-tests/test_core/   113 passed（内核，未动）
-tests/test_utils.py 10 passed（jsonio 白名单/原子写、theme 合并）
-config/state 插件: 冒烟通过但**还没有 pytest 测试文件**（接手后第一件事）
+tests/test_core/            113 passed（内核，未动）
+tests/test_utils.py          10 passed（jsonio 白名单/原子写、theme 合并）
+tests/test_plugins/           7 passed（config 点路径/state 漏斗/actions 内置动作/拓扑序）
+合计 130 passed
 ```
 
 ---
@@ -54,7 +56,9 @@ E:\Zcode-work\AnimaPet\
 │   ├── plugins\
 │   │   ├── __init__.py
 │   │   ├── config.py       ← ✅ ConfigPlugin（provide "config"）
-│   │   └── state.py        ← ✅ StatePlugin（provide "state"，deps=["config"]）
+│   │   ├── state.py        ← ✅ StatePlugin（provide "state"，deps=["config"]）
+│   │   └── actions.py      ← ✅ ActionsPlugin（provide "actions"，deps=["state"]，
+│   │                          内置 state_inc/state_set/emit 在 enable 注册）
 │   ├── mods\               ← ⬜ 空（loader/registry/packer 数据层待搬）
 │   ├── utils\              ← ✅ paths/log/jsonio/theme
 │   └── window\             ← ⬜ 空（pet_window/animator/bubble/dialogs 待搬）
@@ -62,7 +66,7 @@ E:\Zcode-work\AnimaPet\
 ├── data\                   ← 运行时生成（config.json/state.json 已由冒烟产生，gitignore）
 └── tests\
     ├── test_core\          ← ✅ 113 个内核测试
-    ├── test_plugins\       ← ⬜ 空
+    ├── test_plugins\       ← ✅ test_basic_plugins.py（7 个）
     ├── test_window\        ← ⬜ 空
     └── test_utils.py       ← ✅ 10 个
 ```
@@ -91,35 +95,29 @@ E:\Zcode-work\AnimaPet\
 
 ## 五、剩余任务（按序）
 
-1. **actions 插件**（下一个动手点）：搬 YingPet `core/actions.py`（30 行
-   ActionRegistry：register/get/names，fn(value, ctx, full_action)）包成 Plugin；
-   内置动作 state_inc/state_set/emit 改调 state 插件服务（参考 YingPet
-   harness._register_builtin_actions 69-88 行）。补 config/state/actions 的
-   pytest 测试（test_plugins/ 目录，写法参考 tests/test_core/conftest.py 的
-   RecorderPlugin 模式）。
-2. **mods 数据层**：`core/loader.py`(404)/`core/registry.py`(132) 原样搬入
-   `anima/mods/`（改相对导入）；packer 逻辑抽 `anima/mods/packer.py`；
-   复制 mods 数据（card.ying/behavior.health/ui.*，用 robocopy）；loader 插件
-   （扫描→enabled 分流→provide("mods")）。
-3. **window+bridge**：pet_window 去除 harness 五连引用（构造器注入 bus/config/
+1. **mods 数据层**（下一个动手点）：`core/loader.py`(404)/`core/registry.py`(132)
+   原样搬入 `anima/mods/`（改相对导入，loader 里 QPixmap 延迟导入保留）；
+   packer 逻辑抽 `anima/mods/packer.py`；robocopy 复制 mods 数据（card.ying/
+   behavior.health/ui.*）；loader 插件（扫描->enabled 分流->provide("mods")）。
+2. **window+bridge**：pet_window 去除 harness 五连引用（构造器注入 bus/config/
    state/mods 服务）；animator/bubble 近原样；BridgePlugin（run_on_ui 用
    QObject+pyqtSignal(object) 队列封送、add_menu、注册 say/emote/anim 动作）。
    tests/conftest.py 设 `QT_QPA_PLATFORM=offscreen`（必须在 import PyQt6 前）+
    QApplication 会话级 fixture。
-4. **rule_engine**：`bus.on("*")` 替代 on_all；动作执行走 actions 服务；
+3. **rule_engine**：`bus.on("*")` 替代 on_all；动作执行走 actions 服务；
    safe_eval 248 行零改动搬；behaviors.json 规则回归（petted 好感、
    @idle.this 模板、cooldown）。
-5. **module_manager**（重点）：服务+feature 适配器+管理对话框+feature.hello
+4. **module_manager**（重点）：服务+feature 适配器+管理对话框+feature.hello
    模组改写；专项测试（zip-slip 拒绝/冲突改名/删除复活闭环/运行时启停）。
-6. **main.py+收口**：单实例锁（互斥名换 `AnimaPetSingleton`）+ 启动序
-   （Qt→内核线程→start→PetWindow→bind）+ 全链路集成测试 + 铁律检查 +
+5. **main.py+收口**：单实例锁（互斥名换 `AnimaPetSingleton`）+ 启动序
+   （Qt->内核线程->start->PetWindow->bind）+ 全链路集成测试 + 铁律检查 +
    回填 PLAN.md 勾选（Phase 0 全勾，Phase 1 按实际完成度）+ 更新 HANDOVER。
 
 ## 六、环境与复跑
 
 ```bash
 cd E:\Zcode-work\AnimaPet
-.venv\Scripts\python -m pytest tests/ -v          # 当前应 123 全绿
+.venv\Scripts\python -m pytest tests/ -v          # 当前应 130 全绿
 .venv\Scripts\python check_kernel_rules.py        # 785 行 + 纯标准库
 .venv\Scripts\python -m pip install -r requirements.txt   # 重建环境时
 ```
@@ -148,5 +146,5 @@ cd E:\Zcode-work\AnimaPet
   （**UI 线程只 emit、订阅只在内核线程**--bridge 设计的依据）
 - 插件开发模板：`E:\Zcode-work\Anima-v1.1\docs\maintenance.md` 第 10 节
 
-> 接手者从第五节第 1 条（actions 插件）继续；写代码前先读 PLAN.md 对应
+> 接手者从第五节第 1 条（mods 数据层）继续；写代码前先读 PLAN.md 对应
 > 条目与 YingPet 源文件，保持"搬运改写"而非重写。
