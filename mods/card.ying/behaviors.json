@@ -1,0 +1,70 @@
+{
+  "rules": [
+    {
+      "on": "pet.petted",
+      "cooldown": 2,
+      "when": "event.affinity % 20 == 0",
+      "then": [
+        {
+          "say": "……好感度 {event.affinity} 了。哼, 别以为这样就能收买我。"
+        },
+        {
+          "emote": "tsundere"
+        }
+      ]
+    },
+    {
+      "on": "pet.petted",
+      "cooldown": 2,
+      "when": "event.affinity % 20 != 0",
+      "then": [
+        {
+          "say": "@idle.this.petted"
+        },
+        {
+          "emote": "mischief"
+        }
+      ]
+    },
+    {
+      "on": "pet.drag_started",
+      "then": [
+        {
+          "say": "@idle.this.lifted"
+        },
+        {
+          "emote": "angry",
+          "after_ms": 200
+        }
+      ]
+    },
+    {
+      "on": "timer.idle",
+      "when": "rand < 0.5",
+      "then": [
+        {
+          "say": "@idle.this.default"
+        }
+      ]
+    },
+    {
+      "on": "chat.reply",
+      "when": "event.ok and event.emotion != 'default'",
+      "then": [
+        {
+          "emote": "{event.emotion}",
+          "after_ms": 1500
+        }
+      ]
+    },
+    {
+      "on": "feature.hello.clicked",
+      "then": [
+        {
+          "emote": "idea",
+          "after_ms": 2200
+        }
+      ]
+    }
+  ]
+}

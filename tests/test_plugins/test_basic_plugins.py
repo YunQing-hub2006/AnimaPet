@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """config/state/actions 三基础插件的内核协作测试。"""
 import asyncio
+import os
 
 import pytest
 
@@ -16,8 +17,7 @@ def app(tmp_path, monkeypatch):
     from anima.utils import jsonio, paths
     monkeypatch.setattr(paths, "CONFIG_PATH", str(tmp_path / "config.json"))
     monkeypatch.setattr(paths, "STATE_PATH", str(tmp_path / "state.json"))
-    monkeypatch.setattr(jsonio, "_FILES", frozenset({
-        str(tmp_path / "config.json"), str(tmp_path / "state.json")}))
+    monkeypatch.setattr(jsonio, "_BASE", os.path.normpath(str(tmp_path)))
     return App()
 
 

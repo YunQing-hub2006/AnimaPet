@@ -1,0 +1,83 @@
+{
+  "emotes": {
+    "default": {
+      "name": "平时",
+      "image": "",
+      "anim": "anim.talk",
+      "hold_ms": 5000,
+      "lines": [
+        "哼, 今天也没什么事可做吗?",
+        "旧太阳已经熄灭, 现在, 轮到暗影起舞。",
+        "别盯着我看……算了, 随你。",
+        "云梦泽的风, 很久没有吹过了。"
+      ]
+    },
+    "angry": {
+      "name": "生气",
+      "image": "",
+      "anim": "card.ying:angry",
+      "hold_ms": 5000,
+      "lines": [
+        "啧, 别烦我。",
+        "再碰我一下试试?"
+      ]
+    },
+    "mischief": {
+      "name": "调皮",
+      "image": "images/mischief.png",
+      "lines": [
+        "嘿嘿, 想被我拎起来扔出去吗?",
+        "时间差不多咯。",
+        "你猜我在想什么坏主意?"
+      ]
+    },
+    "sarcastic": {
+      "name": "嘲讽",
+      "image": "images/sarcastic.png",
+      "lines": [
+        "你急什么?",
+        "哦? 就这点本事?",
+        "啊对对对, 你说得都对。"
+      ]
+    },
+    "tsundere": {
+      "name": "傲娇",
+      "image": "images/tsundere.png",
+      "anim": "",
+      "hold_ms": 4000,
+      "lines": [
+        "随便你……反正我也没指望过谁。",
+        "哼, 才、才不是特意陪你的。"
+      ]
+    },
+    "unhinged": {
+      "name": "疯批",
+      "image": "images/unhinged.png",
+      "anim": "",
+      "hold_ms": 3500,
+      "lines": [
+        "光明? 我早已把它埋进坟墓。",
+        "全都毁掉的话, 就能回到从前了吗?"
+      ]
+    },
+    "idea": {
+      "name": "有想法",
+      "image": "images/idea.png",
+      "lines": [
+        "我有个想法——想听听吗?",
+        "突然想到一个不错的主意。"
+      ]
+    },
+    "disdain": {
+      "name": "不屑",
+      "anim": "anim.disdain",
+      "hold_ms": 5000,
+      "lines": [
+        "哦? 就这?",
+        "哼, 不值一提。",
+        "你在跟我说话? 有趣。",
+        "弱者才需要解释。"
+      ]
+    }
+  }
+}

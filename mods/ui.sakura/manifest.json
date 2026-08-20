@@ -1,0 +1,24 @@
+{
+  "id": "ui.sakura",
+  "type": "ui",
+  "name": "樱粉",
+  "description": "浅色示例皮肤: 白底粉点, 演示浅色主题与字体覆盖。",
+  "theme": {
+    "font_family": "Microsoft YaHei",
+    "font_size": 10,
+    "bg_window": "#fff5f8",
+    "bg_panel": "#ffffff",
+    "fg_panel": "#5a3a48",
+    "bg_browser": "#fffafb",
+    "fg_browser": "#4a3038",
+    "accent": "#e07a9e",
+    "accent_hover": "#ea9ab8",
+    "btn_bg": "#fbe4ee",
+    "btn_fg": "#7a4058",
+    "status_fg": "#b08a9a",
+    "user_bubble_bg": "#f7cadd",
+    "user_bubble_fg": "#5a2a40",
+    "pet_bubble_bg": "#fdeef4",
+    "pet_bubble_fg": "#5a3a48"
+  }
+}

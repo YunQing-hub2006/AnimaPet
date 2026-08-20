@@ -8,18 +8,15 @@ _log = log.get("jsonio")
 class PathGuardError(ValueError):
     """Path rejected by jsonio whitelist guard."""
 
-_FILES = frozenset({
-    os.path.normpath(paths.CONFIG_PATH),
-    os.path.normpath(paths.STATE_PATH),
-})
+_BASE = os.path.normpath(paths.BASE_DIR)
 _DOTDOT = chr(46)+chr(46)
 def _guard(path):
     norm = str(path).replace(chr(92),"/")
     if _DOTDOT in norm.split("/"):
         raise PathGuardError("jsonio: traversal rejected")
     p = os.path.normpath(os.path.abspath(path))
-    if p not in _FILES:
-        raise PathGuardError("jsonio: not in whitelist")
+    if p != _BASE and not p.startswith(_BASE + os.sep):
+        raise PathGuardError("jsonio: outside project root")
     return p
 def load(path, default):
     try:

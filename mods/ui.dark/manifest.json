@@ -1,0 +1,22 @@
+{
+  "id": "ui.dark",
+  "type": "ui",
+  "name": "墨黑",
+  "description": "纯黑灰示例皮肤: 演示只覆盖部分键, 其余回退默认。",
+  "theme": {
+    "bg_window": "#141414",
+    "bg_panel": "#1f1f1f",
+    "fg_panel": "#e8e8e8",
+    "bg_browser": "#0f0f0f",
+    "fg_browser": "#e8e8e8",
+    "accent": "#4a9eff",
+    "accent_hover": "#6ab4ff",
+    "btn_bg": "#262626",
+    "btn_fg": "#e8e8e8",
+    "status_fg": "#8a8a8a",
+    "user_bubble_bg": "#1f3a5f",
+    "user_bubble_fg": "#d8ecff",
+    "pet_bubble_bg": "#242424",
+    "pet_bubble_fg": "#e8e8e8"
+  }
+}

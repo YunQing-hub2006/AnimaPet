@@ -1,0 +1,23 @@
+{
+  "id": "behavior.health",
+  "type": "behavior",
+  "version": "1.0.0",
+  "name": "健康关怀(久坐提醒/深夜彩蛋)",
+  "rules": [
+    {
+      "on": "timer.sit",
+      "cooldown": 2400,
+      "then": [
+        {"say": "@idle.this.sit"},
+        {"emote": "idea"}
+      ]
+    },
+    {
+      "on": "timer.night",
+      "then": [
+        {"say": "@idle.this.night"},
+        {"emote": "tsundere"}
+      ]
+    }
+  ]
+}

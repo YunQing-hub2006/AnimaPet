@@ -1,0 +1,24 @@
+{
+  "id": "ui.default",
+  "type": "ui",
+  "name": "暗紫(默认)",
+  "description": "v3 出厂配色: 深紫底 + 绛红点缀。theme 留空键则回退默认值。",
+  "theme": {
+    "font_family": "Microsoft YaHei",
+    "font_size": 10,
+    "bg_window": "#241a30",
+    "bg_panel": "#241a30",
+    "fg_panel": "#f0e6ff",
+    "bg_browser": "#1d1526",
+    "fg_browser": "#f0e6ff",
+    "accent": "#b04060",
+    "accent_hover": "#d05070",
+    "btn_bg": "#3a2a4a",
+    "btn_fg": "#f0e6ff",
+    "status_fg": "#a08cb0",
+    "user_bubble_bg": "#5a2a40",
+    "user_bubble_fg": "#ffdce8",
+    "pet_bubble_bg": "#2c2138",
+    "pet_bubble_fg": "#f0e6ff"
+  }
+}
