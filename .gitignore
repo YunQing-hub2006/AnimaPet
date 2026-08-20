@@ -1,0 +1,11 @@
+# 运行时数据
+data/
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.coverage
+*.egg-info/

@@ -1,0 +1,24 @@
+[project]
+name = "animapet"
+version = "0.1.0"
+description = "AnimaPet：基于 Anima 内核 v1.1 的桌面宠物元框架"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["anima*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+source = ["anima.plugins", "anima.mods", "anima.utils"]
+
+[tool.coverage.report]
+show_missing = false

@@ -1,0 +1,558 @@
+
+
+以下是完整的 Anima 桌面宠物元框架开发规划书，你可以直接复制使用：
+
+---
+
+Anima 桌面宠物元框架开发规划书
+
+> 项目名称: Anima
+
+核心理念: 一切皆插件，可逆挂载，热插拔生态
+
+灵感来源: Cordis 元框架、Koishi 机器人框架
+
+目标: 构建一个最小内核 + 插件生态的桌面宠物平台，角色、皮肤、功能、AI 引擎均可自由组合
+
+---
+
+一、项目概述
+
+1.1 产品定位
+
+Anima 是一个元框架级别的桌面宠物平台。它本身不提供具体的角色、聊天或动画，而是提供：
+
+- 物理法则：插件生命周期、事件总线、服务发现、副作用追踪
+- 基础设施：配置中心、状态管理、热重载、UI 桥接
+- 生态契约：标准化的插件接口，让第三方开发者可以开发角色卡、皮肤、AI 适配器、工具模组
+
+类比：
+- 房子 = Anima 内核
+- 租客 = 角色卡插件（自带表情、动画、人设、触发逻辑）
+- 家具 = 功能插件（聊天、天气、待办、音乐控制等）
+- 装修 = 皮肤/UI 插件
+
+1.2 核心设计原则
+
+原则说明
+最小内核框架本身 < 1000 行，不提供业务功能
+一切皆插件配置、状态、动作、热重载、规则引擎、角色、聊天，全部是插件
+可逆挂载插件卸载时，所有副作用（事件订阅、服务注册、定时器、UI 元素）自动 LIFO 回滚
+依赖显式化插件通过 `dependencies` 声明依赖，启动时自动拓扑排序
+服务发现插件不直接引用框架，通过 `Context.use("service_name")` 获取服务
+热插拔文件系统监听 + 防抖重载，模组增删改无需重启应用
+彻底重构不保留旧版兼容壳，所有业务逻辑以插件形式重新实现
+
+---
+
+二、架构设计
+
+2.1 总体架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        用户层 (Userland)                         │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐  │
+│  │ 角色卡 A  │ │ 角色卡 B  │ │ 聊天模组  │ │ 天气/待办/音乐...   │  │
+│  │ (.chara) │ │ (.chara) │ │ (.mod)   │ │ (.mod)             │  │
+│  └──────────┘ └──────────┘ └──────────┘ └────────────────────┘  │
+├─────────────────────────────────────────────────────────────────┤
+│                        插件层 (Plugins)                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
+│  │ Config   │ │ State    │ │ Actions  │ │ Bridge   │           │
+│  │ Plugin   │ │ Plugin   │ │ Registry│ │ (UI桥接) │           │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
+│  │ HotReload│ │ Loader   │ │ RuleEngine│ │ Character│          │
+│  │ Plugin   │ │ Plugin   │ │ Plugin   │ │ Manager  │          │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │
+├─────────────────────────────────────────────────────────────────┤
+│                      元框架核心 (Core)                            │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │
+│  │   App    │ │ EventBus │ │ Service  │ │ Lifecycle│           │
+│  │ (组装器) │ │ (事件总线)│ │ Registry │ │ Manager  │           │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │
+│  ┌──────────┐ ┌──────────┐                                      │
+│  │ Context  │ │ Effect   │                                      │
+│  │ (上下文) │ │ Tracker  │                                      │
+│  └──────────┘ └──────────┘                                      │
+├─────────────────────────────────────────────────────────────────┤
+│                      渲染层 (Renderer)                           │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │              PetWindow (PyQt6 / PySide6)                  │    │
+│  │         角色渲染、聊天窗口、菜单栏、系统托盘               │    │
+│  └──────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+2.2 核心层详细设计
+
+2.2.1 App（最小内核）
+
+```python
+class App:
+    def __init__(self):
+        self.bus = EventBus()              # 事件总线
+        self.registry = ServiceRegistry()  # 服务注册表
+        self.config = {}                   # 全局配置引用
+        self.lifecycle = LifecycleManager(self)
+
+    async def start(self, plugins: List[Plugin]):
+        await self.lifecycle.load_all(plugins)
+        await self.lifecycle.enable_all()
+
+    async def stop(self):
+        await self.lifecycle.unload_all()
+```
+
+设计约束：App 本身不 import 任何业务模块。
+
+2.2.2 EffectTracker（可逆性核心）
+
+```python
+class EffectTracker:
+    def push(self, rollback: CleanupFn): ...
+    def on(self, target, method, *args, **kwargs): ...
+    async def rollback(self): ...  # LIFO 回滚
+```
+
+关键机制：
+- 插件通过 `ctx.on()` 订阅事件 → 自动记录 `unsubscribe` 回滚
+- 插件通过 `ctx.provide()` 注册服务 → 自动记录 `unregister` 回滚
+- 插件通过 `ctx.task()` 创建任务 → 自动记录 `cancel` 回滚
+- 插件通过 `ctx.on_cleanup()` 注册自定义回滚
+
+2.2.3 LifecycleManager（生命周期 + 拓扑排序）
+
+```python
+class LifecycleManager:
+    async def load_all(self, plugins: List[Plugin]):  # Kahn 拓扑排序
+    async def enable(self, name: str):                # 调用 plugin.enable()
+    async def disable(self, name: str):               # 调用 plugin.disable()
+    async def unload(self, name: str):                # plugin.unload() + effects.rollback()
+```
+
+状态机：`unloaded → loaded → enabled → disabled → unloaded`
+
+2.2.4 Context（插件的"房间钥匙"）
+
+```python
+class Context:
+    app: App
+    plugin: Plugin
+    effects: EffectTracker
+    config: dict  # 该插件的私有配置切片
+
+    def on(self, event: str, handler: Callable): ...
+    def emit(self, event: str, data: Any = None): ...
+    def provide(self, service: Union[str, type], instance: Any): ...
+    def use(self, service: Union[str, type], default=None): ...
+    def task(self, coro: Coroutine) -> asyncio.Task: ...
+    def on_cleanup(self, callback: Callable): ...
+```
+
+2.3 插件层设计
+
+插件名职责依赖
+`core.config`配置加载、持久化、分层读取无
+`core.state`状态管理、变更广播、自动保存`core.config`
+`core.actions`动作注册中心、内置动作(state_inc/state_set/emit)`core.state`
+`core.bridge`UI 桥接、runtime 绑定、UI 动作注册(say/emote/anim)`core.actions`
+`core.hotreload`文件系统监听、防抖重载、模组变更检测`core.loader`
+`core.loader`模组扫描、分类、注册表构建`core.config`
+`core.rule_engine`when/if 规则求值、动作触发、调试日志`core.actions`, `core.state`
+`core.character_manager`角色卡生命周期、表情/动画管理、人设上下文`core.bridge`
+`core.chat`LLM API 接入、聊天记录、导入导出、上下文管理`core.character_manager`, `core.actions`
+`core.module_manager`功能插件的启用/禁用/配置、菜单管理所有 core 插件
+
+2.4 数据流设计
+
+```
+用户点击/系统事件
+    ↓
+EventBus.emit("user.click")
+    ↓
+RuleEngine (订阅了 user.click)
+    ↓ 求值 when/if 条件
+ActionRegistry.execute("emote", {"name": "happy"})
+    ↓
+BridgePlugin._emote() → PetWindow.emote()
+    ↓
+UI 更新
+
+同时:
+StatePlugin.change("affinity", 10) → 广播 state.changed
+    ↓
+CharacterManager (订阅了 state.changed) → 切换表情阈值判断
+```
+
+---
+
+三、技术栈
+
+层级技术版本说明
+语言Python3.11+需要 `typing.Self`, `asyncio.TaskGroup`
+GUI 框架PyQt6 / PySide66.5+跨平台桌面窗口、系统托盘、OpenGL 渲染
+异步asyncio标准库事件循环、协程、Task
+类型系统Pydanticv2配置校验、数据模型
+可选 HTTPaiohttp / httpx最新LLM API 异步调用
+可选 WSwebsockets最新实时通信（未来扩展）
+打包PyInstaller / Nuitka最新最终分发
+配置格式JSON / YAML-用户配置、模组清单
+
+---
+
+四、目录结构
+
+```
+anima/
+├── main.py                      # 入口：初始化 App + 加载插件 + 启动 PetWindow
+├── anima/
+│   ├── __init__.py
+│   │
+│   ├── core/                    # ★ 元框架核心（最小内核）
+│   │   ├── __init__.py
+│   │   ├── app.py               # App: 组装器
+│   │   ├── bus.py               # EventBus: 事件总线
+│   │   ├── registry.py          # ServiceRegistry: 服务注册表
+│   │   ├── lifecycle.py         # LifecycleManager: 生命周期 + 拓扑排序
+│   │   ├── context.py           # Context: 插件上下文
+│   │   ├── effects.py           # EffectTracker: 副作用追踪
+│   │   └── plugin.py            # Plugin: 抽象基类
+│   │
+│   ├── plugins/                 # ★ 官方插件（业务层）
+│   │   ├── __init__.py
+│   │   ├── config.py            # core.config
+│   │   ├── state.py             # core.state
+│   │   ├── actions.py           # core.actions
+│   │   ├── bridge.py            # core.bridge (UI桥接)
+│   │   ├── hotreload.py         # core.hotreload
+│   │   ├── loader.py            # core.loader (模组扫描)
+│   │   ├── rule_engine.py       # core.rule_engine
+│   │   ├── character_manager.py # core.character_manager
+│   │   ├── chat.py              # core.chat
+│   │   └── module_manager.py    # core.module_manager
+│   │
+│   ├── models/                  # Pydantic 数据模型
+│   │   ├── __init__.py
+│   │   ├── config.py            # Config 模型
+│   │   ├── character.py         # CharacterCard 模型
+│   │   ├── mod.py               # Mod 基类模型
+│   │   └── chat.py              # ChatMessage, ChatHistory 模型
+│   │
+│   ├── utils/                   # 工具函数
+│   │   ├── __init__.py
+│   │   ├── jsonio.py            # JSON 读写
+│   │   ├── paths.py             # 路径常量
+│   │   └── log.py               # 日志
+│   │
+│   └── window/                  # UI 渲染层
+│       ├── __init__.py
+│       ├── pet_window.py        # 主窗口
+│       ├── chat_window.py       # 聊天窗口
+│       ├── character_view.py    # 角色渲染
+│       └── tray.py              # 系统托盘
+│
+├── mods/                        # 用户模组目录
+│   ├── characters/              # 角色卡
+│   │   └── miku.chara/          # .chara 实际为文件夹或 zip
+│   │       ├── manifest.json    # 人设、触发规则、资源清单
+│   │       ├── assets/
+│   │       │   ├── normal.png
+│   │       │   ├── happy.gif
+│   │       │   └── idle/
+│   │       └── behaviors.json   # when/if 规则
+│   │
+│   ├── skins/                   # UI 皮肤
+│   │   └── default.ui/
+│   │       ├── manifest.json
+│   │       └── style.qss
+│   │
+│   └── features/                # 功能插件
+│       └── weather.mod/
+│           ├── manifest.json
+│           └── main.py          # 插件入口
+│
+├── data/                        # 用户数据（运行时生成）
+│   ├── config.json              # 用户配置
+│   ├── state.json               # 运行时状态
+│   └── chat_history/            # 聊天记录
+│
+├── tests/                       # 测试
+│   ├── test_core/               # 核心层单元测试
+│   ├── test_plugins/            # 插件测试
+│   └── integration/             # 集成测试
+│
+├── docs/                        # 文档
+│   ├── plugin_dev_guide.md      # 插件开发指南
+│   ├── api_reference.md         # API 参考
+│   └── architecture.md          # 架构说明
+│
+├── requirements.txt
+├── pyproject.toml
+└── README.md
+```
+
+---
+
+五、开发路线图（Roadmap）
+
+Phase 0: 元框架核心（第 1-2 周）
+
+目标：实现最小可运行的元框架内核。
+
+任务详细内容验收标准
+0.1 搭建项目结构创建目录、配置 pyproject.toml、requirements.txt`pip install -e .` 成功
+0.2 实现 core 层app.py, bus.py, registry.py, lifecycle.py, context.py, effects.py, plugin.py每个模块有单元测试，覆盖率 > 80%
+0.3 拓扑排序LifecycleManager.load_all() 实现 Kahn 算法循环依赖时抛出明确错误
+0.4 副作用追踪EffectTracker 支持事件订阅/取消、服务注册/注销、任务取消编写测试：插件加载后卸载，确认 bus/registry 为空
+0.5 编写测试pytest + asyncio 测试核心生命周期全部通过
+
+里程碑：`python -m pytest tests/test_core/` 全部通过。
+
+---
+
+Phase 1: 核心插件初始化（第 3 周）
+
+目标：实现基础业务插件，使应用具备最小可运行能力。
+
+任务详细内容验收标准
+1.1 实现 ConfigPlugin加载/保存 JSON，提供分层读取 `get("api.model")`配置读写正常，默认值正确
+1.2 实现 StatePlugin加载/保存 state.json，change() 广播事件状态变更触发事件，持久化正常
+1.3 实现 ActionRegistryPlugin注册内置动作 state_inc/state_set/emit规则引擎可以调用
+1.4 实现 BridgePlugin绑定 PetWindow，注册 say/emote/anim 动作PetWindow 正常显示角色和对话
+1.5 集成启动main.py 初始化 App，按依赖顺序加载插件，启动 PetWindow应用可启动，角色可显示
+1.6 集成测试启动完整应用，确认基础功能正常与旧版 Harness 功能对等
+
+里程碑：应用从零启动，角色加载、显示、基础交互正常。
+
+---
+
+Phase 2: 业务插件化（第 4-5 周）
+
+目标：将原有业务逻辑拆分为独立插件，实现完整功能。
+
+任务详细内容验收标准
+2.1 LoaderPlugin扫描 mods/ 目录，分类角色/皮肤/功能模组返回 mods/errors 与旧逻辑一致
+2.2 HotReloadPluginQFileSystemWatcher + 防抖重载拖入模组后 1 秒内自动重载
+2.3 RuleEnginePluginwhen/if 规则求值、动作触发、调试日志现有 behaviors.json 规则正常触发
+2.4 CharacterManagerPlugin角色卡生命周期、表情/动画管理、人设上下文角色卡加载/切换/卸载正常
+2.5 ModuleManagerPlugin功能插件启用/禁用、菜单管理UI 菜单与插件状态同步
+2.6 数据迁移旧版 config.json / state.json 格式兼容读取老用户数据无缝迁移
+
+里程碑：所有业务逻辑以插件形式运行，无遗留硬编码。
+
+---
+
+Phase 3: 角色卡系统重构（第 6-7 周）
+
+目标：设计标准化的角色卡格式，支持动态加载、表情动画、触发逻辑。
+
+任务详细内容验收标准
+3.1 角色卡格式设计manifest.json 规范：id, name, version, author, expressions[], animations[], personality, triggers[]文档化并编写 JSON Schema
+3.2 资源包规范.chara 文件夹结构：manifest.json + assets/ + behaviors.json支持 ZIP 和文件夹两种形式
+3.3 表情系统Expression 模型：name, resource_path, type(static/gif)支持 PNG/GIF/WebP/SVG
+3.4 动画系统Animation 模型：name, frames[], fps, loop, trigger支持帧动画和骨骼动画(预留)
+3.5 触发逻辑behaviors.json 规范：when(事件), if(条件), then(动作列表)与现有 RuleEngine 兼容
+3.6 角色切换支持多角色并存，切换时上下文隔离聊天历史按角色隔离
+3.7 角色编辑器（可选）GUI 编辑器：新建角色、导入资源、编辑触发规则可导出 .chara 包
+
+里程碑：用户可以通过拖入 .chara 文件夹安装新角色，无需重启。
+
+---
+
+Phase 4: 聊天与 AI 接入（第 8-9 周）
+
+目标：把聊天系统插件化，支持多 LLM 后端、上下文管理、聊天记录。
+
+任务详细内容验收标准
+4.1 ChatPlugin 重构从现有聊天逻辑提取为独立插件支持接入/断开 LLM
+4.2 LLM 适配器接口定义 LLMProvider 抽象类：chat(messages, config) → response支持 OpenAI/DeepSeek/Claude 格式
+4.3 内置适配器DeepSeekAdapter, OpenAIAdapter配置 api_key 即可切换
+4.4 上下文管理System Prompt 注入角色人设，维护对话历史切换角色时上下文重置
+4.5 聊天记录导入/导出 JSON，按角色+日期存储支持搜索、删除单条
+4.6 UI 定制字体、背景、气泡样式配置配置持久化
+4.7 流式输出（可选）SSE 流式接收，逐字显示打字机效果
+
+里程碑：角色可以"扮演"人设与 LLM 对话，聊天记录可导出。
+
+---
+
+Phase 5: 生态与分发（第 10-12 周）
+
+目标：建立插件市场雏形，完善开发者体验。
+
+任务详细内容验收标准
+5.1 插件开发指南docs/plugin_dev_guide.md：Hello World 插件、API 参考、最佳实践第三方开发者可按文档开发
+5.2 插件模板cookiecutter 模板或 CLI 脚手架：`anima new-plugin my_plugin`一键生成插件骨架
+5.3 插件市场（本地）本地插件仓库：mods/ 目录 + 版本检测 + 启用/禁用 UIUI 中可浏览已安装插件
+5.4 插件签名（可选）简单 RSA 签名验证，防止恶意插件未签名插件运行时警告
+5.5 自动更新（可选）检查 GitHub Release 或自建更新服务器提示用户有新版本
+5.6 打包分发PyInstaller 打包为 exe/dmg/appWindows/macOS/Linux 可运行
+
+里程碑：发布 v1.0，社区可以开发并分享第三方插件。
+
+---
+
+六、API 设计规范
+
+6.1 插件接口
+
+```python
+from anima.core import Plugin, Context
+
+class MyPlugin(Plugin):
+    name = "my.author.my_plugin"      # 全局唯一，反向域名风格
+    version = "1.0.0"
+    dependencies = ["core.config"]      # 依赖的其他插件 name
+
+    async def load(self, ctx: Context):
+        # 1. 读取配置
+        api_key = ctx.config.get("api_key", "")
+
+        # 2. 订阅事件
+        ctx.on("user.click", self._on_click)
+
+        # 3. 提供服务
+        ctx.provide("my_service", self)
+
+        # 4. 使用其他服务
+        actions = ctx.use("actions")
+        actions.register("my_action", self._my_action)
+
+        # 5. 启动后台任务
+        ctx.task(self._background_loop())
+
+    async def enable(self):
+        pass  # 开始业务逻辑
+
+    async def disable(self):
+        pass  # 暂停业务逻辑
+
+    async def unload(self):
+        pass  # 自定义清理（框架会自动回滚副作用）
+```
+
+6.2 事件命名规范
+
+```
+域.对象.动作
+
+user.click              # 用户点击角色
+user.double_click       # 用户双击
+user.drag               # 用户拖拽角色
+chat.message.sent       # 用户发送消息
+chat.message.received   # 收到 AI 回复
+character.changed       # 角色切换
+state.changed           # 状态变更
+plugin.enabled          # 插件启用
+plugin.disabled         # 插件禁用
+system.tick             # 每帧更新（60fps）
+system.idle             # 进入待机
+```
+
+6.3 服务命名规范
+
+```python
+# 字符串形式（推荐）
+ctx.provide("config", self)
+ctx.use("config")
+
+# 类形式（类型安全）
+ctx.provide(ConfigService, self)
+ctx.use(ConfigService)
+```
+
+---
+
+七、风险与对策
+
+风险影响对策
+PyQt6 与 asyncio 冲突高使用 `qasync` 库统一事件循环，或确保所有 Qt 信号通过 `QTimer.singleShot` 桥接到 asyncio
+插件循环依赖中LifecycleManager 拓扑排序时检测并抛出明确错误；开发阶段用静态分析工具检查
+热重载状态丢失中关键状态由 StatePlugin 持久化；功能插件的 `_feature_data` 机制保留跨重载数据
+第三方插件安全中Phase 5 引入签名验证；沙箱化执行（`RestrictedPython` 或子进程隔离）
+GIL 阻塞 UI低LLM 请求用 `aiohttp` 异步；CPU 密集型任务用 `asyncio.to_thread` 或 `ProcessPoolExecutor`
+旧数据迁移中Phase 2 提供数据迁移工具，自动将旧版 config.json / state.json 转换为新格式
+
+---
+
+八、附录
+
+A. 角色卡 manifest.json 示例
+
+```json
+{
+  "id": "miku.vocaloid",
+  "name": "初音未来",
+  "version": "1.0.0",
+  "author": "Hatsune",
+  "type": "character",
+  "personality": "活泼、喜欢唱歌、说话用~结尾",
+  "expressions": {
+    "normal": {"path": "assets/normal.png", "type": "static"},
+    "happy": {"path": "assets/happy.gif", "type": "animated"},
+    "sad": {"path": "assets/sad.png", "type": "static"}
+  },
+  "animations": {
+    "idle": {"frames": ["assets/idle_0.png", "assets/idle_1.png"], "fps": 2, "loop": true},
+    "sing": {"frames": ["assets/sing_0.png", "..."], "fps": 8, "loop": false}
+  },
+  "behaviors": [
+    {
+      "when": "chat.message.received",
+      "if": "content contains '开心'",
+      "then": [
+        {"action": "emote", "params": {"name": "happy"}},
+        {"action": "state_inc", "params": {"key": "affinity", "delta": 1}}
+      ]
+    }
+  ]
+}
+```
+
+B. 开发环境搭建
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/yourname/anima.git
+cd anima
+
+# 2. 创建虚拟环境
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 3. 安装依赖
+pip install -e ".[dev]"
+
+# 4. 运行测试
+pytest tests/ -v
+
+# 5. 启动应用
+python main.py
+```
+
+C. 提交规范
+
+```
+feat(core): 添加 EffectTracker 的自定义回滚支持
+fix(plugins): 修复热重载时菜单残留问题
+docs: 更新插件开发指南
+refactor(loader): 将模组扫描提取为 LoaderPlugin
+```
+
+---
+
+九、时间线总览
+
+周次Phase核心交付物
+1-2Phase 0元框架核心 + 单元测试
+3Phase 1核心插件初始化，应用可启动
+4-5Phase 2业务插件化，完整功能对等
+6-7Phase 3角色卡系统，.chara 格式
+8-9Phase 4聊天插件化，多 LLM 支持
+10-12Phase 5插件市场、文档、打包分发
+
+---
+
+> 下一步行动：从 Phase 0 开始，先实现 `core/` 目录下的 7 个核心模块，编写对应的 pytest 单元测试。完成后提交第一个 PR/Milestone。
