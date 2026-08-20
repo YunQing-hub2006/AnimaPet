@@ -1,0 +1,8 @@
+{
+  "id": "feature.clock",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "整点报时",
+  "description": "每 15 秒检查一次, 命中整点气泡报时; 菜单开关存 state.json",
+  "main": "plugin.py"
+}

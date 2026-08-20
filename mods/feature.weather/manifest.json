@@ -1,0 +1,8 @@
+{
+  "id": "feature.weather",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "天气",
+  "description": "免费无需 Key 的天气查询(wttr.in 主 / ip-api + Open-Meteo 备), 结果经事件广播",
+  "main": "plugin.py"
+}

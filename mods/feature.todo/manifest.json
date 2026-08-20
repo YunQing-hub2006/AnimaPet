@@ -1,0 +1,8 @@
+{
+  "id": "feature.todo",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "待办清单",
+  "description": "白底黑字小窗, 增删勾选, 存 state.json 全程持久化; 每天首次加载播报未完成数",
+  "main": "plugin.py"
+}

@@ -43,14 +43,14 @@ async def test_full_stack_boots_with_real_mods(real_env, qapp):
     await core.start(plugins)
 
     reg = core.registry.use("mods")
-    # 真实数据: card.ying 展开(4 动画+角色+8 表情+台词+行为) + health + 3 皮肤 + hello = 20
-    assert len(reg.all_mods) == 20
+    # 真实数据: card.ying 展开(4 动画+角色+8 表情+台词+行为) + health + 3 皮肤 + 6 功能模组 = 25
+    assert len(reg.all_mods) == 25
     assert reg.errors == []
     assert reg.characters.get("card.ying")
     assert len(reg.anims) == 4
     assert len(reg.emotes) == 8
     assert reg.idle_packs and reg.behaviors
-    assert reg.features.get("feature.hello")
+    assert len(reg.features) == 6
     assert len(reg.uis) == 3
 
     # 窗口已绑定并刷出真实帧(offscreen QPixmap 解码 PNG)
@@ -156,7 +156,7 @@ def test_rescan_from_qt_thread_goes_to_kernel(real_env, qapp):
         fut.result(10)             # 内核线程完成重扫
 
         assert reloaded             # mods.reloaded 已在内核线程发出
-        assert len(core.registry.use("mods").all_mods) == 20
+        assert len(core.registry.use("mods").all_mods) == 25
         assert core.lifecycle.get_state("feature.hello") == "enabled"
 
         # 重扫后规则引擎索引重建且可用(emit 走 Qt 线程, 无并发写注册表)

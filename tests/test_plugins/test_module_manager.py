@@ -64,6 +64,11 @@ def mm_env(tmp_path, monkeypatch, qapp):
     (mods_dir / "ui.default").mkdir()
     (mods_dir / "ui.default" / "manifest.json").write_text(json.dumps({
         "id": "ui.default", "type": "ui", "name": "默认", "theme": {}}), encoding="utf-8")
+    (mods_dir / "card.ying").mkdir()
+    (mods_dir / "card.ying" / "manifest.json").write_text(json.dumps({
+        "id": "card.ying", "type": "card", "version": "1.0.0", "name": "影",
+        "system_prompt": "原人设", "idle_anim": "", "talk_anim": "",
+    }, ensure_ascii=False), encoding="utf-8")
     (mods_dir / "feature.demo").mkdir()
     (mods_dir / "feature.demo" / "manifest.json").write_text(json.dumps({
         "id": "feature.demo", "type": "feature", "version": "1.0.0",
@@ -113,7 +118,7 @@ async def test_feature_auto_enabled_and_menu_registered(mm_env):
     assert mm.is_enabled("feature.demo")
     assert app.lifecycle.get_state("feature.demo") == "enabled"
     assert mm.instances.get("feature.demo") is not None
-    assert [label for label, _ in win.feature_menu] == ["模组管理", "Demo 菜单"]
+    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)", "Demo 菜单"]
     # 私有数据容器跨周期可写
     inst = mm.instances["feature.demo"]
     assert mm.feature_data("feature.demo")["hello"] == "world"
@@ -130,7 +135,7 @@ async def test_feature_runtime_disable_enable(mm_env):
 
     await mm.set_enabled("feature.demo", False)
     assert app.lifecycle.get_state("feature.demo") == "unloaded"   # 完整卸载
-    assert [label for label, _ in win.feature_menu] == ["模组管理"]  # 菜单已移除
+    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)"]  # 菜单已移除
     assert ("disable", None) in inst.events
     assert mm.instances.get("feature.demo") is None
     assert mm.is_enabled("feature.demo") is False
@@ -139,7 +144,7 @@ async def test_feature_runtime_disable_enable(mm_env):
     assert app.lifecycle.get_state("feature.demo") == "enabled"    # 全新实例
     new_inst = mm.instances["feature.demo"]
     assert new_inst is not None and new_inst is not inst
-    assert [label for label, _ in win.feature_menu] == ["模组管理", "Demo 菜单"]
+    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)", "Demo 菜单"]
     assert mm.feature_data("feature.demo")["hello"] == "world"     # 数据跨周期保留
     await app.stop()
 
@@ -254,4 +259,27 @@ async def test_rescan_sync_on_kernel_thread(mm_env):
         "id": "ui.dark", "type": "ui", "name": "暗色", "theme": {}}), encoding="utf-8")
     assert mm.rescan() is None
     assert mm.registry.uis.get("ui.dark") is not None   # 已同步生效
+    await app.stop()
+
+
+async def test_settings_dialog_saves_config_and_char_prompt(mm_env, qapp):
+    """SettingsDialog: API 配置写 config 服务, 人设写回角色卡 manifest。"""
+    app, _, _, _, _, mods_dir = mm_env
+    mm = await start(mm_env)
+    from anima.window.dialogs.settings import SettingsDialog
+    dlg = SettingsDialog(mm)
+    assert dlg._current_char() is not None and dlg._current_char().id == "card.ying"
+    dlg.ed_key.setText("sk-test")
+    dlg.ed_base.setText("https://example.com")
+    dlg.ed_model.setCurrentText("model-x")
+    dlg.ed_temp.setText("1.2")
+    dlg.ed_effort.setCurrentIndex(2)          # medium
+    dlg.ed_prompt.setPlainText("新人设")
+    dlg._save()
+    assert mm.config.get("api.api_key") == "sk-test"
+    assert mm.config.get("api.base_url") == "https://example.com"
+    assert mm.config.get("api.temperature") == 1.2
+    assert mm.config.get("api.reasoning_effort") == "medium"
+    manifest = json.loads((mods_dir / "card.ying" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["system_prompt"] == "新人设"
     await app.stop()

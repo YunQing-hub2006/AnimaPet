@@ -1,0 +1,8 @@
+{
+  "id": "feature.packer",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "模组打包",
+  "description": "模组导出/导入(zip, Zip-Slip 防护, id 冲突自动改名); 纯函数核心复用 anima.mods.packer",
+  "main": "plugin.py"
+}

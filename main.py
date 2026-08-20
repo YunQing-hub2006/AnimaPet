@@ -45,7 +45,9 @@ from anima.events import EventNames
 from anima.mods.registry import Registry
 from anima.plugins.actions import ActionRegistry, ActionsPlugin
 from anima.plugins.bridge import BridgePlugin
+from anima.plugins.character_manager import CharacterManagerPlugin
 from anima.plugins.config import ConfigPlugin, ConfigService
+from anima.plugins.hotreload import HotreloadPlugin
 from anima.plugins.loader import LoaderPlugin
 from anima.plugins.module_manager import ModuleManagerPlugin
 from anima.plugins.rule_engine import RuleEnginePlugin
@@ -73,8 +75,10 @@ def _build_stack():
         ActionsPlugin(actions),
         LoaderPlugin(registry),
         RuleEnginePlugin(),
+        CharacterManagerPlugin(),
         bridge,
         ModuleManagerPlugin(),
+        HotreloadPlugin(),
     ]
     return core, plugins, pet, bridge
 

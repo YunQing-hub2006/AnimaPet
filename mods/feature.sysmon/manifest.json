@@ -1,0 +1,8 @@
+{
+  "id": "feature.sysmon",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "系统监控",
+  "description": "菜单『系统状态』气泡播报 CPU / 内存占用(纯标准库 ctypes, Windows)",
+  "main": "plugin.py"
+}

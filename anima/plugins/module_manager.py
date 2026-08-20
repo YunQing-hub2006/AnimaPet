@@ -396,8 +396,9 @@ class ModuleManagerPlugin(Plugin):
         ctx.on(EventNames.MODS_RELOADED, lambda _data: self._svc.fire(self._svc.sync_features()))
 
     async def enable(self) -> None:
-        """入口就绪: 登记管理菜单 + 首次 feature 对账。"""
+        """入口就绪: 登记管理/设置菜单 + 首次 feature 对账。"""
         self._svc.add_menu("module_manager", "模组管理", self._open_mods_dialog)
+        self._svc.add_menu("module_manager", "设置 (API / 人设)", self._open_settings_dialog)
         await self._svc.sync_features()
 
     def _open_mods_dialog(self):
@@ -408,6 +409,15 @@ class ModuleManagerPlugin(Plugin):
             dlg.exec()
         except Exception as e:
             _log.warning("open mods dialog failed: %s", e)
+
+    def _open_settings_dialog(self):
+        """打开设置对话框(在 Qt 线程被菜单触发)。"""
+        try:
+            from anima.window.dialogs.settings import SettingsDialog
+            dlg = SettingsDialog(self._svc, self._svc.bridge.window)
+            dlg.exec()
+        except Exception as e:
+            _log.warning("open settings dialog failed: %s", e)
 
     @property
     def service(self) -> ModuleManagerService:
