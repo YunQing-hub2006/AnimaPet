@@ -218,45 +218,51 @@ main.py 新启动序）。
 > 规划书 12 周路线图的 Phase 0 已由 work/ 内核完成；YingPet 代码可复用度高，
 > 整体压缩到 **6 个阶段 / 约 6-7 周等效工作量**。每阶段以"验收可运行"收口。
 
-### Phase 0：内核安置与升级（0.5 周）✅ 大部分完成
+### Phase 0：内核安置与升级（0.5 周）✅ 完成
 
 - [x] Anima 内核 v1.0（work/ 仓库，104 测试，覆盖率 99%）
-- [ ] work/ 内核升级 v1.1：`ctx.task()` + push_task（含测试与文档更新）
-- [ ] AnimaPet 仓库初始化：目录骨架、pyproject、venv、内核与 test_core 复制
-- [ ] 冒烟：`asyncio.run(App().start([]))` 通过；pytest 全绿
+- [x] work/ 内核升级 v1.1：`ctx.task()` + push_task（含测试与文档更新）
+- [x] AnimaPet 仓库初始化：目录骨架、pyproject、venv、内核与 test_core 复制
+- [x] 冒烟：`asyncio.run(App().start([]))` 通过；pytest 全绿
 
 **验收**: `pytest tests/ -v` 全绿；`check_kernel_rules.py` 通过。
 
-### Phase 1：最小可运行宠物（1 周）—— 规划书 Phase 1
+### Phase 1：最小可运行宠物（1 周）—— 规划书 Phase 1 ✅ 完成
 
 任务（按依赖序）：
-1. `anima/utils/`（jsonio/paths/log/theme 原样）+ `anima/events.py` 常量表
-2. **config 插件**：DEFAULT_CONFIG、点路径 get、原子保存、`provide("config")`
-3. **state 插件**：change 漏斗 + 持久化 + `state.changed` 广播
-4. **actions 插件**：注册中心 + state_inc/state_set/emit
-5. **window 层搬运**：pet_window/animator/bubble（去 harness 引用）
-6. **bridge 插件**（本阶段最难，TD1 落地）：Qt 主线程持有 PetWindow；
-   `run_on_ui` 封装；注册 say/emote/anim 动作；`system.tick` QTimer
-7. **loader 插件**（先支持 card + ui + behavior 只读扫描，功能模组下一阶段）
-8. **main.py**：单实例锁 → Qt → 内核线程 → start → card.ying 显示
-9. 集成测试：offscreen 模式启动 → 角色显示 → emit user.click → 冒泡
+1. [x] `anima/utils/`（jsonio/paths/log/theme 原样）+ `anima/events.py` 常量表
+2. [x] **config 插件**：DEFAULT_CONFIG、点路径 get、原子保存、`provide("config")`
+3. [x] **state 插件**：change 漏斗 + 持久化 + `state.changed` 广播
+4. [x] **actions 插件**：注册中心 + state_inc/state_set/emit
+5. [x] **window 层搬运**：pet_window/animator/bubble（去 harness 引用）
+6. [x] **bridge 插件**（本阶段最难，TD1 落地）：Qt 主线程持有 PetWindow；
+   `run_on_ui` 封装；注册 say/emote/anim 动作；功能菜单登记
+7. [x] **loader 插件**（先支持 card + ui + behavior 只读扫描，功能模组下一阶段）
+8. [x] **main.py**：单实例锁 → Qt → 内核线程 → start → card.ying 显示
+9. [x] 集成测试：offscreen 模式启动 → 角色显示 → emit user.click → 冒泡
 
 **验收**: `python main.py` 启动，ying 角色待机动画正常，点击/拖拽/
 双击事件到总线，右键菜单可 emote、可退出；行为规则（petted 加好感）触发。
+（offscreen 冒烟实测通过：20 模组对象 0 错误、规则 7 事件订阅、角色帧加载；
+真机 GUI 交互待用户环境双击验收。）
 
 ### Phase 2：业务全插件化（1.5 周）—— 规划书 Phase 2
 
-1. **hotreload 插件**：QFileSystemWatcher + 800ms 防抖 → 经 lifecycle
+1. [ ] **hotreload 插件**：QFileSystemWatcher + 800ms 防抖 → 经 lifecycle
    unload/load 对应模组；重载后 `_feature_data` 等价物 = 插件私有
    state 切片（热重载状态不丢）
-2. **rule_engine 插件** + safe_eval 原样搬运 + 规则/动作/模板全量回归
-3. **character_manager 插件**：card 生命周期、active 切换、归属过滤、
+2. [x] **rule_engine 插件** + safe_eval 原样搬运 + 规则/动作/模板全量回归
+   （注：内核通配订阅 `"*"` 的 handler 收不到事件名，改为按规则声明的
+   事件名逐个订阅，语义与 on_all+过滤等价，订阅随 mods.reloaded 重建）
+3. [ ] **character_manager 插件**：card 生命周期、active 切换、归属过滤、
    `character.switched` 事件链
-4. **module_manager 插件**：启用/禁用（持久化到 config.mods.enabled）、
-   菜单注册服务、ModsDialog 对接 lifecycle
-5. 六个功能模组改写（weather/todo/sysmon/clock/hello/packer）
-6. `tools/migrate_yingpet.py`：config/state/chat_history 平移 + 字段补齐
-7. 测试：YingPet 6 个测试文件全部改写通过 + 热重载专项测试
+4. [x] **module_manager 插件**：启用/禁用（持久化到 config.mods.enabled）、
+   菜单注册服务、ModsDialog 对接 lifecycle（feature 适配器强制
+   `dependencies=[]`，禁用=完整卸载、再启用=全新实例重新 on_load）
+5. [ ] 六个功能模组改写（weather/todo/sysmon/clock/hello/packer）
+   （feature.hello 已完成改写示范；其余 5 个待办）
+6. [ ] `tools/migrate_yingpet.py`：config/state/chat_history 平移 + 字段补齐
+7. [ ] 测试：YingPet 6 个测试文件全部改写通过 + 热重载专项测试
 
 **验收**: 与 YingPet-v4 功能对等清单逐项打勾（角色/行为/天气/待办/
 时钟/系统监控/打包导入导出/设置/角色卡编辑）；拖入新模组 1 秒内重载；
