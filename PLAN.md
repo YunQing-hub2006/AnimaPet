@@ -246,27 +246,39 @@ main.py 新启动序）。
 （offscreen 冒烟实测通过：20 模组对象 0 错误、规则 7 事件订阅、角色帧加载；
 真机 GUI 交互待用户环境双击验收。）
 
-### Phase 2：业务全插件化（1.5 周）—— 规划书 Phase 2
+### Phase 2：业务全插件化（1.5 周）—— 规划书 Phase 2 ✅ 完成
 
-1. [ ] **hotreload 插件**：QFileSystemWatcher + 800ms 防抖 → 经 lifecycle
-   unload/load 对应模组；重载后 `_feature_data` 等价物 = 插件私有
-   state 切片（热重载状态不丢）
+1. [x] **hotreload 插件**：QFileSystemWatcher + 800ms 防抖 → 经
+   module_manager.rescan（线程感知调度到内核循环，注册表重建无竞态）；
+   watcher 是 QObject，经 bridge.run_on_ui 保证在 Qt 主线程创建；
+   `_feature_data` 等价物 = `module_manager.feature_data(id)`（热重载状态不丢）
 2. [x] **rule_engine 插件** + safe_eval 原样搬运 + 规则/动作/模板全量回归
-   （注：内核通配订阅 `"*"` 的 handler 收不到事件名，改为按规则声明的
-   事件名逐个订阅，语义与 on_all+过滤等价，订阅随 mods.reloaded 重建）
-3. [ ] **character_manager 插件**：card 生命周期、active 切换、归属过滤、
-   `character.switched` 事件链
+   （内核通配订阅 `"*"` 的 handler 收不到事件名，改为按规则声明的
+   事件名逐个订阅，语义与 on_all+过滤等价，订阅随 mods.reloaded 重建；
+   后续优化：事件分发索引 + 每事件一次快照）
+3. [x] **character_manager 插件**：card 生命周期、active 切换、归属过滤、
+   `character.switch`→窗口刷新→`character.switched` 事件链（功能模组可经
+   `use("character_manager").switch(id)` 程序化切换）
 4. [x] **module_manager 插件**：启用/禁用（持久化到 config.mods.enabled）、
-   菜单注册服务、ModsDialog 对接 lifecycle（feature 适配器强制
-   `dependencies=[]`，禁用=完整卸载、再启用=全新实例重新 on_load）
-5. [ ] 六个功能模组改写（weather/todo/sysmon/clock/hello/packer）
-   （feature.hello 已完成改写示范；其余 5 个待办）
-6. [ ] `tools/migrate_yingpet.py`：config/state/chat_history 平移 + 字段补齐
-7. [ ] 测试：YingPet 6 个测试文件全部改写通过 + 热重载专项测试
+   菜单注册服务、ModsDialog/SettingsDialog 对接 lifecycle（feature 适配器
+   强制 `dependencies=[]`，禁用=完整卸载、再启用=全新实例重新 on_load）
+5. [x] 六个功能模组改写（weather/todo/sysmon/clock/hello/packer）：
+   FeatureContext 白名单契约与 YingPet 同名平移（仅 import 改 anima；
+   packer 纯函数复用 anima.mods.packer）；设置对话框并入 module_manager
+   （API / 人设写回角色卡 manifest）
+6. [x] `tools/migrate_yingpet.py`：config/state/chat_history 平移 + 字段补齐
+   （默认结构合并、未知键留 _legacy、功能模组状态随 state 平移、写前备份
+   data/backup/、源目录只读、--dry-run）
+7. [x] 测试改写 + 热重载专项：YingPet test_harness（对等回归并入集成测试）、
+   test_safe_eval、test_plugins_v31（→test_features.py）、test_ui_mod 已改写；
+   **test_chat_plugin / test_charcard 随聊天(Phase 4)与角色卡编辑器(Phase 3)
+   功能落地时改写**；hotreload 专项（watcher 防抖/路径/插件接线/重扫生效/
+   Qt 线程跨线程 rescan）已齐
 
-**验收**: 与 YingPet-v4 功能对等清单逐项打勾（角色/行为/天气/待办/
-时钟/系统监控/打包导入导出/设置/角色卡编辑）；拖入新模组 1 秒内重载；
-卸载模组后 bus/registry 无残留（内核可逆性兑现）。
+**验收**: 与 YingPet-v4 功能对等清单逐项打勾（角色/行为/天气/待办/时钟/
+系统监控/打包导入导出/设置 ✅；角色卡编辑→Phase 3 charcard 编辑器、聊天→Phase 4）；
+拖入新模组 ≤1 秒热生效（800ms 防抖 + 同步重扫，专项测试覆盖确定性路径）；
+卸载模组后 bus/registry 无残留（内核可逆性兑现，集成测试断言 bus.count()==0）。
 
 ### Phase 3：.chara 角色卡规范化（1 周）—— 规划书 Phase 3
 

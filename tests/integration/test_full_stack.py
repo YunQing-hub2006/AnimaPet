@@ -168,3 +168,53 @@ def test_rescan_from_qt_thread_goes_to_kernel(real_env, qapp):
             loop.call_soon_threadsafe(loop.stop)
         thread.join(10)
     assert not thread.is_alive()
+
+
+async def test_real_data_parity_regressions(real_env, qapp):
+    """YingPet test_harness 对等回归(真实数据): 帧数精确 / 归属隔离 /
+    行为开关实时生效 / 角色卡人设写回后重扫生效。"""
+    core, plugins, pet, _bridge = main._build_stack()
+    await core.start(plugins)
+    reg = core.registry.use("mods")
+
+    # 动画帧懒加载精确数(真实 PNG)
+    assert len(reg.anim("card.ying:idle").frames(pet.display_size)) == 50
+    assert len(reg.anim("card.ying:talk").frames(pet.display_size)) == 60
+
+    # 行为归属隔离: 别的角色激活时, 影的规则不触发
+    engine = core.registry.use("rule_engine")
+    engine.set_character("char.someone_else")
+    pet.bubble._full = ""
+    core.bus.emit("pet.petted", {"affinity": 20})
+    assert pet.bubble._full == ""
+    engine.set_character("card.ying")
+    core.bus.emit("pet.petted", {"affinity": 20})
+    assert pet.bubble._full.startswith("……好感度 20")
+
+    # 全局行为开关: 关 behavior.health → timer.night 静默; 开 → 恢复
+    mm = core.registry.use("module_manager")
+    await mm.set_enabled("behavior.health", False)
+    assert "behavior.health" not in reg.behaviors
+    pet.bubble._full = ""
+    core.bus.emit("timer.night")
+    assert pet.bubble._full == ""
+    await mm.set_enabled("behavior.health", True)
+    pet.bubble._full = ""
+    core.bus.emit("timer.night")
+    assert pet.bubble._full, "深夜规则应恢复触发"
+
+    # 角色卡人设写回 manifest → 重扫生效 → 还原(测试不改仓库数据)
+    char = reg.character("card.ying")
+    orig = char.system_prompt
+    try:
+        char.raw["system_prompt"] = "测试人设-请勿惊慌"
+        jsonio.save(os.path.join(char.dir, "manifest.json"), char.raw)
+        await mm.a_rescan()
+        assert reg.character("card.ying").system_prompt == "测试人设-请勿惊慌"
+    finally:
+        char2 = reg.character("card.ying")
+        char2.raw["system_prompt"] = orig
+        jsonio.save(os.path.join(char2.dir, "manifest.json"), char2.raw)
+        await mm.a_rescan()
+        assert reg.character("card.ying").system_prompt == orig
+    await core.stop()
