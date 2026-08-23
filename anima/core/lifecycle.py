@@ -59,6 +59,11 @@ class LifecycleManager:
 
         空列表是合法输入。重名、空 ``name``、缺失依赖、循环依赖都会在
         任何 ``load()`` 调用之前被检测出来（先排空栈再执行）。
+
+        某个 ``load()`` 抛异常时，已注册的全部插件（含失败者自身）按
+        逆加载序尽力卸载，不留半加载状态；回滚自身的清理失败聚合进
+        :class:`RollbackError`（``__cause__`` 指向原始异常）后抛出，
+        否则原样重抛原始异常。
         """
         seen: set[str] = set()
         for plugin in plugins:
@@ -70,28 +75,62 @@ class LifecycleManager:
 
         ordered = _topo_sort(plugins)
 
-        for plugin in ordered:
-            ctx = Context(self._app, plugin)
-            self._plugins[plugin.name] = plugin
-            self._states[plugin.name] = _LOADED
-            self._load_order.append(plugin.name)
-            await _call(plugin.load, ctx)
+        try:
+            for plugin in ordered:
+                ctx = Context(self._app, plugin)
+                self._plugins[plugin.name] = plugin
+                self._states[plugin.name] = _LOADED
+                self._load_order.append(plugin.name)
+                await _call(plugin.load, ctx)
+        except BaseException as exc:
+            await self._raise_with_rollback_errors(exc)
 
     async def enable_all(self) -> None:
-        """按加载顺序启用全部已加载插件。"""
-        for name in list(self._load_order):
-            if self.get_state(name) == _LOADED:
-                await self.enable(name)
+        """按加载顺序启用全部已加载插件。
+
+        某个 ``enable()`` 抛异常时，全部插件按逆加载序卸载（已启用的
+        先自动 disable），不留半启用状态；异常语义同 :meth:`load_all`。
+        """
+        try:
+            for name in list(self._load_order):
+                if self.get_state(name) == _LOADED:
+                    await self.enable(name)
+        except BaseException as exc:
+            await self._raise_with_rollback_errors(exc)
 
     async def unload_all(self) -> None:
-        """按逆加载顺序禁用并卸载全部插件，随后清空记录。"""
-        for name in reversed(self._load_order):
-            state = self.get_state(name)
-            if state == _ENABLED:
-                await self.disable(name)
-            if self.get_state(name) in (_LOADED, _DISABLED):
-                await self.unload(name)
+        """按逆加载顺序禁用并卸载全部插件，随后清空记录。
+
+        单个插件的清理失败（:class:`RollbackError`）被聚合而不中断
+        其余卸载；全部处理完后统一抛出。
+        """
+        errors = await self._unload_everything()
         self._load_order.clear()
+        if errors:
+            raise RollbackError(errors)
+
+    async def _unload_everything(self) -> list[BaseException]:
+        """按逆加载序尽力卸载全部插件，返回期间收集的全部异常。"""
+        errors: list[BaseException] = []
+        for name in reversed(list(self._load_order)):
+            try:
+                await self.unload(name)
+            except RollbackError as exc:
+                errors.extend(exc.errors)
+            except Exception as exc:
+                errors.append(exc)
+        return errors
+
+    async def _raise_with_rollback_errors(self, exc: BaseException) -> None:
+        """load/enable 钩子失败后的统一出口：尽力卸载全部已注册插件。
+
+        回滚自身有清理失败时抛聚合 :class:`RollbackError`（``__cause__``
+        指向原始异常），否则重抛原始异常。
+        """
+        errors = await self._unload_everything()
+        if errors:
+            raise RollbackError(errors) from exc
+        raise exc
 
     # -- 单插件操作 ---------------------------------------------------------
 

@@ -50,22 +50,39 @@ class App:
     # -- 启动 / 停止 ---------------------------------------------------------
 
     async def start(self, plugins: list[Plugin]) -> None:
-        """加载并启用全部插件。重复 start 抛 :class:`LifecycleError`。"""
+        """加载并启用全部插件。重复 start 抛 :class:`LifecycleError`。
+
+        load/enable 中途失败时，已注册插件由生命周期层按逆加载序回滚
+        卸载；此处再兜底清空总线、注册表与追踪器，保证失败后 App 可
+        再次 ``start``。清理失败聚合进 :class:`RollbackError`（cause
+        指向原始异常），否则原样抛出。
+        """
         if self._started:
             raise LifecycleError("App 已启动，不能重复 start")
-        await self.lifecycle.load_all(plugins)
-        await self.lifecycle.enable_all()
+        try:
+            await self.lifecycle.load_all(plugins)
+            await self.lifecycle.enable_all()
+        except BaseException:
+            self.bus.clear()
+            self.registry.clear()
+            self._effects.clear()
+            raise
         self._started = True
 
     async def stop(self) -> None:
         """卸载全部插件并清空总线与注册表。
 
         未启动时调用是空操作；stop 后可以再次 ``start``（不泄漏状态）。
+        单个插件的清理失败聚合为 :class:`RollbackError` 抛出，但不影响
+        其余插件卸载，也不影响总线/注册表清空与 ``_started`` 复位
+        （App 始终可重启）。
         """
         if not self._started:
             return
-        await self.lifecycle.unload_all()
-        self.bus.clear()
-        self.registry.clear()
-        self._effects.clear()
-        self._started = False
+        try:
+            await self.lifecycle.unload_all()
+        finally:
+            self.bus.clear()
+            self.registry.clear()
+            self._effects.clear()
+            self._started = False

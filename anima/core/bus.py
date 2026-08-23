@@ -7,6 +7,10 @@
   但不匹配裸事件名 ``"user"``。
 - 通配订阅 ``"*"`` 收到一切事件。
 
+执行顺序契约（v1.1.1 明确）: 精确订阅的 handler 先于通配 handler 执行，
+两组各自内部按注册顺序执行；同步 handler 立即执行，协程 handler 的
+执行时机由事件循环调度决定，与注册顺序无关。
+
 单个 handler 抛异常不影响其他 handler 的执行。
 
 线程语义（v1.1 明确）:
@@ -83,7 +87,6 @@ class EventBus:
 
     def _wild_matches(self, event: str) -> list[Handler]:
         matched = [h for prefix, h in self._wild if event.startswith(prefix)]
-        matched.sort(key=_is_coroutine_fn)
         return matched
 
     def emit(self, event: str, data: Any = None) -> None:
@@ -125,10 +128,6 @@ class EventBus:
         """移除全部订阅（框架 stop 时调用）。"""
         self._exact.clear()
         self._wild.clear()
-
-
-def _is_coroutine_fn(handler: Handler) -> bool:
-    return asyncio.iscoroutinefunction(handler)
 
 
 def _schedule_coroutine(coro: Any) -> None:

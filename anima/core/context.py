@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Self
 
-from anima.core.effects import CleanupFn
+from anima.core.effects import CleanupFn, EffectTracker
 
 if TYPE_CHECKING:
     from anima.core.app import App
@@ -25,7 +25,7 @@ class Context:
 
     app: "App"
     plugin: "Plugin"
-    effects: "anima.core.effects.EffectTracker"
+    effects: EffectTracker
     config: dict[str, Any]
 
     def __init__(self, app: "App", plugin: "Plugin") -> None:
