@@ -1,6 +1,6 @@
-# AnimaPet 开发会话 · 工作交接记录（第 7 版 · Phase 3 完成）
+# AnimaPet 开发会话 · 工作交接记录（第 8 版 · Phase 3+4 完成）
 
-> **会话日期**: 2026-08-23（Phase 3 收尾：测试+提交+编辑器+文档全部落地）
+> **会话日期**: 2026-08-23（Phase 4 完成：聊天/适配器/历史/测试落地）
 > **项目**: AnimaPet -- 基于 Anima 内核 v1.1.1 的桌面宠物元框架
 > **位置**: `E:\Zcode-work\AnimaPet`（git 已初始化，按里程碑提交）
 > **上游内核**: `E:\Zcode-work\Anima-v1.1`（v1.1.1 冻结，**只读**，勿改）
@@ -10,16 +10,15 @@
 
 ## ⚠️ 最重要的一句话（接手者先读）
 
-**Phase 3 已全部完成并提交，剩余只有用户真机冒烟（HANDOVER §五 第 5 步）。**
-当前工作区已无 Phase 3 的未提交改动（仅 `.mimosa/` 建议 gitignore）。
-提交历史：① 内核升级 v1.1.1；② Phase 3 数据层（模型/schema/.chara/按角色隔离）；
-③ 本次 GUI+测试+文档 commit（编辑完本文档后提交）。
+**Phase 3/4 已全部完成并提交，剩余 Phase 5（tray/文档/打包/tag）+ 真机冒烟。**
+当前收尾后为干净状态；提交历史：① 内核升级 v1.1.1；② Phase 3 数据层；
+③ Phase 3 编辑器/测试/文档；④ Phase 4 聊天（本版收尾提交）。
 
 ---
 
 ## 一、当前进度快照（截至 2026-08-23）
 
-### PLAN Phase 0/1/2/3 全部完成 ✅；Phase 4/5 待做
+### PLAN Phase 0-4 全部完成 ✅；Phase 5 待做
 
 Phase 3 五项子任务状态：
 
@@ -30,6 +29,10 @@ Phase 3 五项子任务状态：
 | 3 | charcard 编辑器 6 页签 GUI + Pydantic 校验 | ✅ 完成（`anima/window/dialogs/charcard/`，菜单接入 module_manager） |
 | 4 | 多角色并存与切换上下文隔离 | ✅ 完成（`character_manager.history_dir` + 迁移按角色分流） |
 | 5 | ZIP 形式 .chara 加载（packer 防护复用） | ✅ 完成（packer 扩展 + id/类型归一） |
+
+Phase 4 四项子任务已全部完成：`anima/adapters/`（LLMProvider/openai_compat）、
+`anima/plugins/chat.py` + `window/chat_panel.py`、按角色历史存储（搜索/单条删除/
+JSON 导入导出）、`stream` 配置预留。
 
 ### 本会话完成的工作（已提交/待提交）
 
@@ -45,12 +48,19 @@ Phase 3 五项子任务状态：
    管理器打开/卡内动画展示、四页签写回路由、新建向导→热加载→删除干净。
 4. **格式规范文档**：`docs/chara_format.md`（目录结构、四 JSON 字段表、
    `format="chara-1"`、id 命名、双名兼容、zip 规范、校验边界两套语义）。
-5. **PLAN.md 回填**：Phase 3 五项勾选 + 验收说明；HANDOVER 第 7 版。
+5. **PLAN.md 回填**：Phase 3/4 勾选 + 验收说明；HANDOVER 第 8 版。
+6. **Phase 4 聊天**：`anima/adapters/{base,openai_compat}.py`（async LLMProvider、
+   sync requests 包 to_thread、解析/降级）、`anima/plugins/chat.py`（ChatPlugin +
+   按角色 HistoryStore）、`anima/window/chat_panel.py`（面板 + JSON 导入导出按钮）、
+   `anima/models/chat.py`（ChatMessage/ChatHistory）。
+7. **Phase 4 测试**：`tests/test_plugins/test_chat_plugin.py` 6 个用例（解析/历史/
+   面板/按角色隔离/历史浏览/缺 key 降级）。
+8. **main.py**：ChatPlugin 已接入官方插件栈。
 
 ### 当前测试状态
 
 ```text
-pytest tests/ -> 244 passed（约 19s，全绿）
+pytest tests/ -> 250 passed（约 21s，全绿）
 check_kernel_rules.py -> 840 行、纯标准库（v1.1.1 内核，未动）
 ```
 
@@ -63,7 +73,8 @@ check_kernel_rules.py -> 840 行、纯标准库（v1.1.1 内核，未动）
 ```text
 ab239e9 chore: 内核升级 v1.1.0 -> v1.1.1（失败回滚/重启安全）
 6617f5e feat: Phase 3 角色卡模型层——Pydantic 模型/schema/.chara 包/按角色隔离
-（本次收尾的 GUI+test_charcard+docs 将作为第三个 commit）
+380b8df feat: Phase 3 角色卡编辑器 GUI + 测试 + .chara 格式文档
+（Phase 4 聊天 commit 随本次收尾提交）
 ```
 
 仍建议：`.mimosa/`（Mimosa 安全工具运行产物）加入 .gitignore 或忽略。
@@ -101,28 +112,32 @@ E:\Zcode-work\AnimaPet\
 │   └── schema\chara.schema.json
 ├── anima\
 │   ├── core\                   v1.1.1 内核（冻结勿改）
-│   ├── models\                 Pydantic 校验层
-│   ├── plugins\...             config/state/actions/loader/rule_engine/…/character_manager/module_manager
+│   ├── models\                 Pydantic 校验层（角色卡 + 聊天）
+│   ├── adapters\               Phase 4 LLM 适配器（base/openai_compat）
+│   ├── plugins\...             config/state/actions/loader/rule_engine/…/character_manager/module_manager/chat
 │   ├── mods\...                loader/packer/registry
 │   ├── utils\...                paths/log/jsonio/theme
 │   └── window\
-│       ├── pet_window.py / animator.py / bubble.py
+│       ├── pet_window.py / animator.py / bubble.py / chat_panel.py
 │       └── dialogs\
 │           ├── modmanager.py / settings.py
 │           └── charcard\       __init__.py / dialog.py / wizard.py / assets.py
 ├── mods\                       card.ying + 3 皮肤 + 6 功能模组
 ├── data\                      运行时生成（gitignore）
-└── tests\                      244 个（Phase 3 全绿）
+└── tests\                      250 个（Phase 3+4 全绿）
 ```
 
 ---
 
-## 五、下一步（只剩真机冒烟）
+## 五、下一步（Phase 5 + 真机冒烟）
 
-### 第 5 步（真机冒烟，用户环境）：重启应用 → 拖入 .chara zip 新角色 →
-角色切换后人设/行为/历史完全隔离 → 编辑器改人设即热生效。
+### 第 5 步（Phase 5 生态与收尾）：tray、`docs/plugin_dev_guide.md`、
+PyInstaller 打包、性能回归、README + tag v1.0。
 
-> 用户真机实例一直是旧代码，所有 Phase 3 功能都要重启后才可见。
+### 第 6 步（真机冒烟，用户环境）：重启应用 → 拖入 .chara zip 新角色 →
+角色切换后人设/行为/历史完全隔离 → 编辑器改人设即热生效 → 聊天窗收发/导出。
+
+> 用户真机实例一直是旧代码，所有 Phase 3/4 功能都要重启后才可见。
 > 若冒烟发现问题，回来改代码后补测试并重新提交。
 
 ---
@@ -130,8 +145,8 @@ E:\Zcode-work\AnimaPet\
 ## 六、不用干什么（明确排除）
 
 1. 不要再改 `anima/core/`（v1.1.1 冻结）。
-2. 不要做 Phase 4（聊天/LLM）——只留了 `history_dir` 落点。
-3. 不要做 Phase 5（tray/打包/README/tag）。
+2. 不要重复做 Phase 4 聊天（已落地；流式打字机渲染留到后续优化）。
+3. Phase 5 是下一步，但打包/tag 需用户确认后执行。
 4. 不要删 `E:\Zcode-work\Anima-core-old\core` 归档（等真机确认后）。
 5. 不要重写编辑器（原样平移 + 数据源改造，别改布局/样式）。
 6. 不要在编辑器里引入新依赖（PyQt6 + pydantic 已够）。
@@ -145,7 +160,9 @@ E:\Zcode-work\AnimaPet\
 - `tools/export_chara_schema.py`：改模型后重新生成 schema（测试断言同步）。
 - `packer.import_mod_zip` + `migrate.import_chara`：拖入 zip 安装新角色入口。
 - `migrate.export_chara`：规范化导出（format 标记 + 整体校验）。
-- `character_manager.history_dir`：`data/characters/<id>/chat_history.json` 已定死，Phase 4 直接接管。
+- `character_manager.history_dir`：`data/characters/<id>/chat_history.json`（Phase 4 已接管）。
+- `anima/adapters/`：LLMProvider/OpenAICompatProvider，任何异步 LLM 接入点。
+- `anima/plugins/chat.py`：ChatPlugin + HistoryStore（搜索/单条删除/JSON 导入导出）。
 - `loader._valid_rules` / `_one_emote`：逐文件降级范式（坏项丢弃 + `_VALIDATE_LIMIT`）。
 - `anima/window/dialogs/charcard/`：编辑器 GUI（dialog/wizard/assets + 包内 wait_fire 工具）。
 - 对话框平移先例：`settings.py` / `modmanager.py`（mm 服务 + `_wait_fire` 模式）。
@@ -167,6 +184,9 @@ E:\Zcode-work\AnimaPet\
   feature_menu 断言已同步更新。
 - **Mimosa hook / Jsonio**：仓库内写文件走 `jsonio.save`（项目根白名单 + 原子写），
   测试临时目录记得 monkeypatch `jsonio._BASE`。
+- **Qt 线程调 async 的坑**：chat 面板信号在 Qt 主线程，不能直接 `asyncio.ensure_future`
+  （无运行循环）。统一走 `module_manager.fire(coro)`（跨线程投递内核循环；
+  单线程测试回退 create_task）。
 
 ---
 
@@ -174,7 +194,7 @@ E:\Zcode-work\AnimaPet\
 
 ```bash
 cd E:\Zcode-work\AnimaPet
-.venv\Scripts\python -m pytest tests/ -q          # 244 passed
+.venv\Scripts\python -m pytest tests/ -q          # 250 passed
 .venv\Scripts\python check_kernel_rules.py        # 840 行 + 纯标准库
 .venv\Scripts\python tools\export_chara_schema.py # schema 幂等
 .venv\Scripts\python tools\migrate_yingpet.py migrate --dry-run
@@ -187,9 +207,9 @@ cd E:\Zcode-work\AnimaPet
 
 ## 十、参考文档
 
-- 总计划：`PLAN.md`（Phase 0-3 ✅；Phase 4/5 待做 + 验收标准）
+- 总计划：`PLAN.md`（Phase 0-4 ✅；Phase 5 待做 + 验收标准）
 - `.chara` 格式规范：`docs/chara_format.md`；JSON Schema：`docs/schema/chara.schema.json`
 - 内核 API / 并发模型 / 插件模板：`E:\Zcode-work\Anima-v1.1\docs\` 三份
 - 迁移源（只读）：YingPet `feature.charcard/*` + `tests/test_charcard.py`（改写蓝本）
 
-> **接手者从真机冒烟继续（第 5 步）；在此之前不要动 Phase 3 代码。**
+> **接手者从 Phase 5 与真机冒烟继续；代码已带 Phase 4，重启后可见。**

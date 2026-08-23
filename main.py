@@ -46,6 +46,7 @@ from anima.mods.registry import Registry
 from anima.plugins.actions import ActionRegistry, ActionsPlugin
 from anima.plugins.bridge import BridgePlugin
 from anima.plugins.character_manager import CharacterManagerPlugin
+from anima.plugins.chat import ChatPlugin
 from anima.plugins.config import ConfigPlugin, ConfigService
 from anima.plugins.hotreload import HotreloadPlugin
 from anima.plugins.loader import LoaderPlugin
@@ -78,6 +79,7 @@ def _build_stack():
         CharacterManagerPlugin(),
         bridge,
         ModuleManagerPlugin(),
+        ChatPlugin(),
         HotreloadPlugin(),
     ]
     return core, plugins, pet, bridge

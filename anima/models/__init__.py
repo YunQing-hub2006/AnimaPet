@@ -11,6 +11,7 @@ from anima.models.character import (
     load_card,
     save_card,
 )
+from anima.models.chat import ChatHistory, ChatMessage
 
 __all__ = [
     "Animation",
@@ -19,6 +20,8 @@ __all__ = [
     "CharacterCard",
     "Expression",
     "IdleLines",
+    "ChatHistory",
+    "ChatMessage",
     "error_text",
     "load_card",
     "save_card",

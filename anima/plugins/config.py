@@ -19,6 +19,7 @@ DEFAULT_CONFIG = {
         "max_tokens": 1500,
         "timeout": 20,
         "reasoning_effort": "",
+        "stream": False,   # 流式输出接口预留(Phase 4, 打字机渲染后续实现)
     },
     "window": {
         "size": "small",

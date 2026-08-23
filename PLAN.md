@@ -301,17 +301,19 @@ main.py 新启动序）。
 测试齐全）；角色切换后人设/行为/历史完全隔离（数据层测试 + 编辑器写回测试）。
 真机拖装/切换隔离仍在第 5 步用户环境冒烟。
 
-### Phase 4：聊天与多 LLM（1 周）—— 规划书 Phase 4
+### Phase 4：聊天与多 LLM（1 周）—— 规划书 Phase 4 ✅ 完成（代码+测试；真机 LLM 联调待用户环境）
 
-1. `LLMProvider` 抽象 + `openai_compat` 实现（复用请求/解析/降级逻辑）
-2. chat 插件：面板信号对接、上下文管理（system prompt 注入人设 +
-   emotion 白名单）、流式输出接口预留（`stream: bool` 配置，打字机
-   由 bubble 现有能力承接）
-3. 历史分角色/分会话存储、搜索、单条删除、JSON 导入导出
-4. API key 仍存本地 config（桌面应用可接受），文档明示风险
+1. [x] `LLMProvider` 抽象 + `openai_compat` 实现（`anima/adapters/` async 抽象 + openai_compat，sync requests 包 to_thread，解析/降级复用）
+2. [x] chat 插件：`anima/plugins/chat.py` + `window/chat_panel.py`，面板信号对接、
+   system prompt 注入人设 + emotion 白名单、`stream: bool` 配置已预留在
+   DEFAULT_CONFIG（流式打字机渲染后续实现）
+3. [x] 历史分角色/分会话存储（`data/characters/<id>/chat_history.json`）、搜索、
+   单条删除（`HistoryStore.delete_message/delete_conversation`）、JSON 导入导出
+4. [x] API key 仍存本地 config（沿用 `config.json api.api_key`；适配器缺 key/坏 key 降级为角色内错误回复）
 
-**验收**: DeepSeek/OpenAI 任意 base_url 配置即用；对话中角色表情随
-emotion 字段切换；聊天记录可导出；断网/坏 key 得到角色内错误回复。
+**验收**: DeepSeek/OpenAI 任意 base_url 配置即用（适配器单测覆盖缺 key 降级）；
+对话中角色表情随 emotion 字段切换（CHAT_REPLY 事件转发 emotion，行为规则已订阅）；
+聊天记录可按 txt/JSON 导出导入；断网/坏 key 得到角色内错误回复。
 
 ### Phase 5：生态与收尾（1 周）—— 规划书 Phase 5
 
