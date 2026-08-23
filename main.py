@@ -55,6 +55,7 @@ from anima.plugins.rule_engine import RuleEnginePlugin
 from anima.plugins.state import StatePlugin, StateService
 from anima.utils import log, paths
 from anima.window.pet_window import PetWindow
+from anima.window.tray import TrayController
 
 _log = log.get("main")
 
@@ -155,6 +156,10 @@ def _run():
         raise RuntimeError("内核线程未在 15 秒内就绪")
 
     pet.show()
+    try:
+        TrayController(registry, cfg, bridge)
+    except Exception as e:
+        _log.warning("tray init failed: %s", e)
     _log.info("AnimaPet started at %s", paths.BASE_DIR)
     core.bus.emit(EventNames.APP_START)
 

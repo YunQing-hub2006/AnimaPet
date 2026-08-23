@@ -315,16 +315,17 @@ main.py 新启动序）。
 对话中角色表情随 emotion 字段切换（CHAT_REPLY 事件转发 emotion，行为规则已订阅）；
 聊天记录可按 txt/JSON 导出导入；断网/坏 key 得到角色内错误回复。
 
-### Phase 5：生态与收尾（1 周）—— 规划书 Phase 5
+### Phase 5：生态与收尾（1 周）—— 规划书 Phase 5 🚧 部分完成（tray/指南/README；打包与 tag 待用户确认）
 
-1. **tray**（新增）：系统托盘图标、快速菜单（角色/皮肤/退出）
-2. `docs/plugin_dev_guide.md`：Hello World、Context API、两条线程规则、
-   打包规范；`anima new-plugin` 脚手架脚本
-3. PyInstaller 打包（paths.py 冻结路径感知已就绪）+ run.bat 保留
-4. 性能回归：内核基准表复测 + 启动时间 < 3s + 常驻内存与 YingPet 持平
-5. README + 对比 YingPet 的功能对等声明，打 tag `v1.0`
+1. [x] **tray**（新增）：`anima/window/tray.py` + main.py 接入（角色/皮肤/退出）
+2. [x] `docs/plugin_dev_guide.md`：Hello World、Context API、两条线程规则、
+   打包规范 + `tools/new_plugin.py` 脚手架脚本
+3. [ ] PyInstaller 打包（paths.py 冻结路径感知已就绪）+ run.bat 保留 —— 待用户确认后执行
+4. [ ] 性能回归：`tests/test_core/test_performance.py` 随全量回归保持；启动时间/常驻内存基准待真机
+5. [x] README.md + 功能对等/进度说明；[ ] tag v1.0 待用户确认后打
 
-**验收**: 打包 exe 双击可跑；第三方开发者按指南可写出并热加载插件。
+**验收**: 第三方开发者按指南可写出并热加载插件（docs/new_plugin 已覆盖）；
+打包 exe 双击可跑/性能基准待 pyinstaller 与真机确认。
 
 ---
 

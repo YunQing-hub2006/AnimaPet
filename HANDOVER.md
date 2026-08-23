@@ -1,4 +1,4 @@
-# AnimaPet 开发会话 · 工作交接记录（第 8 版 · Phase 3+4 完成）
+# AnimaPet 开发会话 · 工作交接记录（第 9 版 · Phase 3+4 完成 + Phase 5 部分）
 
 > **会话日期**: 2026-08-23（Phase 4 完成：聊天/适配器/历史/测试落地）
 > **项目**: AnimaPet -- 基于 Anima 内核 v1.1.1 的桌面宠物元框架
@@ -10,7 +10,7 @@
 
 ## ⚠️ 最重要的一句话（接手者先读）
 
-**Phase 3/4 已全部完成并提交，剩余 Phase 5（tray/文档/打包/tag）+ 真机冒烟。**
+**Phase 3/4 已全部完成；Phase 5 部分完成（tray/开发指南/README），剩余打包/tag + 真机冒烟。**
 当前收尾后为干净状态；提交历史：① 内核升级 v1.1.1；② Phase 3 数据层；
 ③ Phase 3 编辑器/测试/文档；④ Phase 4 聊天（本版收尾提交）。
 
@@ -18,7 +18,7 @@
 
 ## 一、当前进度快照（截至 2026-08-23）
 
-### PLAN Phase 0-4 全部完成 ✅；Phase 5 待做
+### PLAN Phase 0-4 全部完成 ✅；Phase 5 部分完成（打包/tag 待确认）
 
 Phase 3 五项子任务状态：
 
@@ -77,7 +77,7 @@ ab239e9 chore: 内核升级 v1.1.0 -> v1.1.1（失败回滚/重启安全）
 （Phase 4 聊天 commit 随本次收尾提交）
 ```
 
-仍建议：`.mimosa/`（Mimosa 安全工具运行产物）加入 .gitignore 或忽略。
+仍建议：`.mimosa/` 已加入 .gitignore。
 
 ---
 
@@ -131,8 +131,8 @@ E:\Zcode-work\AnimaPet\
 
 ## 五、下一步（Phase 5 + 真机冒烟）
 
-### 第 5 步（Phase 5 生态与收尾）：tray、`docs/plugin_dev_guide.md`、
-PyInstaller 打包、性能回归、README + tag v1.0。
+### 第 5 步（Phase 5 生态与收尾）：已完成 tray、docs/plugin_dev_guide.md、
+README、tools/new_plugin.py；剩余 PyInstaller 打包、性能基准、tag v1.0（待用户确认）。
 
 ### 第 6 步（真机冒烟，用户环境）：重启应用 → 拖入 .chara zip 新角色 →
 角色切换后人设/行为/历史完全隔离 → 编辑器改人设即热生效 → 聊天窗收发/导出。
@@ -163,6 +163,8 @@ PyInstaller 打包、性能回归、README + tag v1.0。
 - `character_manager.history_dir`：`data/characters/<id>/chat_history.json`（Phase 4 已接管）。
 - `anima/adapters/`：LLMProvider/OpenAICompatProvider，任何异步 LLM 接入点。
 - `anima/plugins/chat.py`：ChatPlugin + HistoryStore（搜索/单条删除/JSON 导入导出）。
+- `anima/window/tray.py`：系统托盘（角色/皮肤/退出）。
+- `docs/plugin_dev_guide.md` + `tools/new_plugin.py`：第三方开发指南与脚手架。
 - `loader._valid_rules` / `_one_emote`：逐文件降级范式（坏项丢弃 + `_VALIDATE_LIMIT`）。
 - `anima/window/dialogs/charcard/`：编辑器 GUI（dialog/wizard/assets + 包内 wait_fire 工具）。
 - 对话框平移先例：`settings.py` / `modmanager.py`（mm 服务 + `_wait_fire` 模式）。
@@ -212,4 +214,4 @@ cd E:\Zcode-work\AnimaPet
 - 内核 API / 并发模型 / 插件模板：`E:\Zcode-work\Anima-v1.1\docs\` 三份
 - 迁移源（只读）：YingPet `feature.charcard/*` + `tests/test_charcard.py`（改写蓝本）
 
-> **接手者从 Phase 5 与真机冒烟继续；代码已带 Phase 4，重启后可见。**
+> **接手者从 Phase 5 剩余项（打包/tag）与真机冒烟继续；代码已带 Phase 3/4/5 部分，重启后可见。**
