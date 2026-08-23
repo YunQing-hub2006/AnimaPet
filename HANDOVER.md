@@ -1,6 +1,6 @@
-# AnimaPet 开发会话 · 工作交接记录（第 9 版 · Phase 3+4 完成 + Phase 5 部分）
+# AnimaPet 开发会话 · 工作交接记录（第 10 版 · Phase 0-5 完成 / v1.0）
 
-> **会话日期**: 2026-08-23（Phase 4 完成：聊天/适配器/历史/测试落地）
+> **会话日期**: 2026-08-23（Phase 5 收尾：打包/性能/tag v1.0/日志导出落地）
 > **项目**: AnimaPet -- 基于 Anima 内核 v1.1.1 的桌面宠物元框架
 > **位置**: `E:\Zcode-work\AnimaPet`（git 已初始化，按里程碑提交）
 > **上游内核**: `E:\Zcode-work\Anima-v1.1`（v1.1.1 冻结，**只读**，勿改）
@@ -10,15 +10,15 @@
 
 ## ⚠️ 最重要的一句话（接手者先读）
 
-**Phase 3/4 已全部完成；Phase 5 部分完成（tray/开发指南/README），剩余打包/tag + 真机冒烟。**
-当前收尾后为干净状态；提交历史：① 内核升级 v1.1.1；② Phase 3 数据层；
-③ Phase 3 编辑器/测试/文档；④ Phase 4 聊天（本版收尾提交）。
+**Phase 0-5 已全部完成并打成 tag v1.0；剩余仅有用户真机冒烟与归档清理。**
+提交历史：内核升级 → Phase 3 数据层 → Phase 3 编辑器 → Phase 4 聊天 → Phase 5 
+（托盘/指南/打包/性能/日志导出）→ 方案 A 内置模组 + 新建功能模组入口。
 
 ---
 
 ## 一、当前进度快照（截至 2026-08-23）
 
-### PLAN Phase 0-4 全部完成 ✅；Phase 5 部分完成（打包/tag 待确认）
+### PLAN Phase 0-5 全部完成 ✅（tag v1.0）
 
 Phase 3 五项子任务状态：
 
@@ -63,7 +63,7 @@ JSON 导入导出）、`stream` 配置预留。
 ### 当前测试状态
 
 ```text
-pytest tests/ -> 252 passed（约 21s，全绿）
+pytest tests/ -> 254 passed（约 21s，全绿）
 check_kernel_rules.py -> 840 行、纯标准库（v1.1.1 内核，未动）
 ```
 
@@ -125,17 +125,17 @@ E:\Zcode-work\AnimaPet\
 │       └── dialogs\
 │           ├── modmanager.py / settings.py
 │           └── charcard\       __init__.py / dialog.py / wizard.py / assets.py
-├── mods\                       card.ying + 3 皮肤 + 6 功能模组
+├── mods\                       card.ying + 3 皮肤 + 8 功能模组（含 feature.chat/charcard）
 ├── data\                      运行时生成（gitignore）
-└── tests\                      250 个（Phase 3+4 全绿）
+└── tests\                      254 个（Phase 0-5 全绿）
 ```
 
 ---
 
-## 五、下一步（Phase 5 + 真机冒烟）
+## 五、下一步（只剩用户侧收尾）
 
-### 第 5 步（Phase 5 生态与收尾）：已完成 tray、docs/plugin_dev_guide.md、
-README、tools/new_plugin.py；剩余 PyInstaller 打包、性能基准、tag v1.0（待用户确认）。
+### 第 5 步（真机冒烟，用户环境）：按 docs/RELEASE_CHECKLIST.md 逐项验证；
+确认稳定后删除 `E:\Zcode-work\Anima-core-old\core` 归档。
 
 ### 第 6 步（真机冒烟，用户环境）：重启应用 → 拖入 .chara zip 新角色 →
 角色切换后人设/行为/历史完全隔离 → 编辑器改人设即热生效 → 聊天窗收发/导出。
@@ -149,7 +149,7 @@ README、tools/new_plugin.py；剩余 PyInstaller 打包、性能基准、tag v1
 
 1. 不要再改 `anima/core/`（v1.1.1 冻结）。
 2. 不要重复做 Phase 4 聊天（已落地；流式打字机渲染留到后续优化）。
-3. Phase 5 是下一步，但打包/tag 需用户确认后执行。
+3. Phase 5 已完成（含打包/性能/tag v1.0），不要再重复做。
 4. 不要删 `E:\Zcode-work\Anima-core-old\core` 归档（等真机确认后）。
 5. 不要重写编辑器（原样平移 + 数据源改造，别改布局/样式）。
 6. 不要在编辑器里引入新依赖（PyQt6 + pydantic 已够）。
@@ -169,6 +169,9 @@ README、tools/new_plugin.py；剩余 PyInstaller 打包、性能基准、tag v1
 - `mods/feature.charcard/` + `mods/feature.chat/`：内置功能模组，总管理器可启停/删除/替换。
 - `anima/window/tray.py`：系统托盘（角色/皮肤/退出）。
 - `docs/plugin_dev_guide.md` + `tools/new_plugin.py`：第三方开发指南与脚手架。
+- `docs/RELEASE_CHECKLIST.md`：用户真机冒烟清单。
+- `build.spec` + `tools/build_exe.py` + `tools/benchmark.py`：打包与性能基准。
+- 模组管理「导出日志…」「打开日志文件夹」：日志导出/排查。
 - `loader._valid_rules` / `_one_emote`：逐文件降级范式（坏项丢弃 + `_VALIDATE_LIMIT`）。
 - `anima/window/dialogs/charcard/`：编辑器 GUI（dialog/wizard/assets + 包内 wait_fire 工具）。
 - 对话框平移先例：`settings.py` / `modmanager.py`（mm 服务 + `_wait_fire` 模式）。

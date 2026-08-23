@@ -27,6 +27,7 @@ run.bat                             # pythonw 无控制台启动
 ```
 
 首次运行会自动生成 data/; 右键宠物可打开「角色卡管理器」「聊天窗口」等入口。
+发布前真机验证清单见 `docs/RELEASE_CHECKLIST.md`。
 
 ## 测试
 
