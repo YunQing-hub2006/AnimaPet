@@ -58,6 +58,7 @@ run.bat                             # pythonw 无控制台启动
   `.venv\Scripts\python tools\new_plugin.py greet 问候`;
 - .chara 角色卡开发: `docs/chara_dev_guide.md`; 格式规范: `docs/chara_format.md`;
 - 用户使用: `docs/user_guide.md`; 发布检查: `docs/RELEASE_CHECKLIST.md`;
+- 项目结项报告: `docs/PROJECT_STATUS.md`;
 - JSON Schema: `docs/schema/chara.schema.json`;
 - 迁移工具: `.venv\Scripts\python tools\migrate_yingpet.py migrate --dry-run`。
 
