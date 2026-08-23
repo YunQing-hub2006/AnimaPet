@@ -9,6 +9,7 @@ import asyncio
 import os
 import re
 import shutil
+import time
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QColor
@@ -137,6 +138,12 @@ class ModsDialog(QDialog):
         self.btn_open = QPushButton("打开 mods 文件夹")
         self.btn_open.clicked.connect(lambda: self.mm.open_path(paths.MODS_DIR))
         row.addWidget(self.btn_open)
+        self.btn_export_log = QPushButton("导出日志…")
+        self.btn_export_log.clicked.connect(self._export_log)
+        row.addWidget(self.btn_export_log)
+        self.btn_open_log = QPushButton("打开日志文件夹")
+        self.btn_open_log.clicked.connect(lambda: self.mm.open_path(paths.DATA_DIR))
+        row.addWidget(self.btn_open_log)
         row.addStretch(1)
         self.btn_all = QPushButton("全部启用")
         self.btn_all.clicked.connect(lambda: self._set_all(True))
@@ -425,6 +432,25 @@ class ModsDialog(QDialog):
             n = self.mm.export_zip(mid, dest)
             QMessageBox.information(
                 self, "导出完成", "已导出 %s（%d 个文件）" % (os.path.basename(dest), n))
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", str(e))
+
+    def _export_log(self):
+        """导出 data/pet.log 到用户选择的位置。"""
+        if not os.path.isfile(paths.LOG_PATH):
+            QMessageBox.information(self, "导出日志",
+                                    "还没有日志文件(data/pet.log 未生成)。")
+            return
+        default = "AnimaPet-%s.log" % time.strftime("%Y%m%d-%H%M%S")
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "导出日志", os.path.join(paths.BASE_DIR, default),
+            "日志文件 (*.log);;所有文件 (*.*)")
+        if not dest:
+            return
+        try:
+            self.mm.export_log(dest)
+            QMessageBox.information(self, "导出完成",
+                                    "日志已导出: %s" % os.path.basename(dest))
         except Exception as e:
             QMessageBox.warning(self, "导出失败", str(e))
 

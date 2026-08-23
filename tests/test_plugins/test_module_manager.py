@@ -347,3 +347,20 @@ async def test_mods_dialog_new_feature_entry(mm_env, qapp, monkeypatch):
     assert (mods_dir / "feature.my_feature" / "manifest.json").exists()
     assert mm.instances.get("feature.my_feature") is not None
     await app.stop()
+
+
+async def test_export_log_service_and_dialog_buttons(mm_env, tmp_path, monkeypatch):
+    """导出日志: 服务复制 pet.log; 模组管理对话框有导出/打开日志按钮。"""
+    app, _, _, _, _, _ = mm_env
+    mm = await start(mm_env)
+    log_path = tmp_path / "pet.log"
+    log_path.write_text("line1\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "LOG_PATH", str(log_path))
+    dest = tmp_path / "out.log"
+    assert mm.export_log(str(dest)) == str(dest)
+    assert dest.read_text(encoding="utf-8") == "line1\n"
+    from anima.window.dialogs.modmanager import ModsDialog
+    dlg = ModsDialog(mm)
+    assert dlg.btn_export_log.text() == "导出日志…"
+    assert dlg.btn_open_log.text() == "打开日志文件夹"
+    await app.stop()

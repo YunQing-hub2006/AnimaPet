@@ -144,6 +144,14 @@ class ModuleManagerService:
         except Exception as e:
             _log.warning("open_path %s: %s", path, e)
 
+    def export_log(self, dest) -> str:
+        """把当前 pet.log 复制到用户选择的位置(Phase 5 附加)。"""
+        if not os.path.isfile(paths.LOG_PATH):
+            raise ValueError("日志文件不存在: %s" % paths.LOG_PATH)
+        os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+        shutil.copy2(paths.LOG_PATH, dest)
+        return str(dest)
+
     # -- 查询 -------------------------------------------------------------
 
     def list_mods(self) -> list[dict]:
