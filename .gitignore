@@ -5,6 +5,10 @@ data/
 # Mimosa 安全工具运行产物
 .mimosa/
 
+# PyInstaller 构建产物
+build/
+dist/
+
 # Python
 __pycache__/
 *.pyc
