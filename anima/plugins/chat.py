@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
-"""chat 插件(PLAN Phase 4): 聊天面板 + LLM 适配器 + 按角色历史。
+"""聊天功能控制器(PLAN Phase 4) —— 由内置功能模组 mods/feature.chat 驱动。
 
-设计(沿用 YingPet-v4 feature.chat 的结构, 数据源改 anima 服务):
-- 面板 anima.window.chat_panel.ChatPanel 在 Qt 线程创建(经 bridge.run_on_ui);
-- LLM 调用走 anima.adapters.LLMProvider(async 抽象, 同步网络包 to_thread);
-- 历史按角色分目录: data/characters/<id>/chat_history.json(HANDOVER 约定),
-  格式 anima-chat-1(conv_id + messages); 兼容旧 YingPet 平铺 list;
-- 服务名 "chat": 其他插件可 use("chat") 调 send/switch 等。
+不再作为官方 Plugin 自动启动: 入口/生命周期归 module_manager 管理,
+本文件只提供 ChatFeature(FeatureContext 白名单版控制器) + HistoryStore。
 """
 from __future__ import annotations
 
@@ -17,8 +13,7 @@ import time
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
-from anima.adapters import LLMProvider, LLMReply, OpenAICompatProvider
-from anima.core import Context, Plugin
+from anima.adapters import LLMReply, OpenAICompatProvider
 from anima.events import EventNames
 from anima.utils import jsonio, log, paths
 from anima.window.chat_panel import ChatPanel
@@ -40,8 +35,6 @@ class HistoryStore:
         self.conv_id = 1
         self.entries: list[dict] = []
         self._load()
-
-    # -- 读写 ------------------------------------------------------------
 
     def _load(self) -> None:
         raw = jsonio.load(self.path, None)
@@ -84,8 +77,6 @@ class HistoryStore:
             "conv_id": self.conv_id,
             "messages": self.entries,
         })
-
-    # -- CRUD ------------------------------------------------------------
 
     def append(self, role: str, content: str) -> dict:
         msg = {
@@ -139,8 +130,6 @@ class HistoryStore:
     def current_conv(self) -> list[dict]:
         return [m for m in self.entries if int(m.get("conv", 1)) == self.conv_id]
 
-    # -- 导出/导入 --------------------------------------------------------
-
     def export_text(self, path: str) -> None:
         lines = ["=== 聊天记录 ==="]
         for m in self.entries:
@@ -178,52 +167,35 @@ class HistoryStore:
         return len(self.entries)
 
 
-class ChatPlugin(Plugin):
-    """聊天插件: 提供 "chat" 服务, 面板/历史/LLM 编排。"""
+class ChatFeature:
+    """面向 FeatureContext 的聊天控制器(由 mods/feature.chat 启动/停止)。"""
 
-    name = "chat"
-    version = "1.0.0"
-    dependencies = ["config", "state", "loader", "bridge", "character_manager", "module_manager"]
-
-    def __init__(self, provider: LLMProvider | None = None,
-                 panel_factory=None) -> None:
+    def __init__(self, ctx, provider=None, panel_factory=None):
+        self.ctx = ctx
         self._provider = provider if provider is not None else OpenAICompatProvider()
         self._panel_factory = panel_factory
-        self._ctx: Context | None = None
         self._panel: ChatPanel | None = None
         self._history: HistoryStore | None = None
         self._history_char_id = ""
         self._api_busy = False
 
-    # -- 生命周期 ---------------------------------------------------------
+    # -- 生命周期(由 feature 模组调用) ----------------------------------
 
-    async def load(self, ctx: Context) -> None:
-        self._ctx = ctx
-        ctx.provide("chat", self)
-        ctx.on(EventNames.PET_DOUBLE_CLICKED, lambda _p: self._toggle())
-        ctx.on(EventNames.MODS_RELOADED, lambda _p: self._refresh_all())
-        ctx.on(EventNames.UI_CHANGED, lambda _p: self._apply_skin())
-        ctx.on(EventNames.CHARACTER_SWITCHED, lambda _p: self._refresh_all())
+    def start(self) -> None:
+        """注册菜单/事件并创建面板(面板经 run_on_ui 到 Qt 线程)。"""
+        ctx = self.ctx
+        ctx.add_menu_action("聊天窗口 (双击宠物也可以)", self.toggle)
+        ctx.on(EventNames.PET_DOUBLE_CLICKED, lambda _p: self.toggle())
+        ctx.on(EventNames.MODS_RELOADED, lambda _p: self.refresh_all())
+        ctx.on(EventNames.UI_CHANGED, lambda _p: self.apply_skin())
+        ctx.on(EventNames.CHARACTER_SWITCHED, lambda _p: self.refresh_all())
         ctx.on(EventNames.STATE_CHANGED, self._on_state_changed)
-        ctx.on(EventNames.APP_QUIT, lambda _p: self._shutdown())
+        ctx.on(EventNames.APP_QUIT, lambda _p: self.stop())
+        self.ensure_panel()
+        self.refresh_all()
 
-    async def enable(self) -> None:
-        assert self._ctx is not None
-        self._ctx.use("bridge").add_menu("chat", "聊天窗口 (双击宠物也可以)", self._toggle)
-        self._ensure_panel()
-        self._refresh_all()
-
-    async def unload(self) -> None:
-        b = self._ctx.use("bridge") if self._ctx else None
-        if b is not None:
-            b.remove_menu("chat")
-        self._shutdown()
-
-    # -- 服务属性 ---------------------------------------------------------
-
-    @property
-    def service(self) -> "ChatPlugin":
-        return self
+    def stop(self) -> None:
+        self.ctx.run_on_ui(self._hide_panel_ui)
 
     @property
     def panel(self) -> ChatPanel | None:
@@ -232,28 +204,6 @@ class ChatPlugin(Plugin):
     @property
     def history(self) -> HistoryStore | None:
         return self._history
-
-    # -- 服务访问 ---------------------------------------------------------
-
-    @property
-    def _bridge(self):
-        return self._ctx.use("bridge") if self._ctx else None
-
-    @property
-    def _config(self):
-        return self._ctx.use("config") if self._ctx else None
-
-    @property
-    def _state(self):
-        return self._ctx.use("state") if self._ctx else None
-
-    @property
-    def _registry(self):
-        return self._ctx.use("mods") if self._ctx else None
-
-    @property
-    def _cm(self):
-        return self._ctx.use("character_manager") if self._ctx else None
 
     # -- 面板 --------------------------------------------------------------
 
@@ -274,19 +224,19 @@ class ChatPlugin(Plugin):
         panel.history_requested.connect(self._show_history)
         panel.history_conv_requested.connect(self._on_history_link)
 
-    def _ensure_panel(self) -> None:
-        if self._panel is None and self._bridge is not None:
-            self._bridge.run_on_ui(self._make_panel)
+    def ensure_panel(self) -> None:
+        if self._panel is None:
+            self.ctx.run_on_ui(self._make_panel)
 
-    def _toggle(self) -> None:
-        self._ensure_panel()
+    def toggle(self) -> None:
+        self.ensure_panel()
         panel = self._panel
         if panel is None:
             return
         if panel.isVisible():
             panel.hide()
             return
-        pet = self._bridge.window if self._bridge is not None else None
+        pet = self.ctx.pet
         if pet is not None:
             screen = QGuiApplication.screenAt(pet.geometry().center()) or QGuiApplication.primaryScreen()
             x = pet.x() - panel.width() - 12
@@ -302,64 +252,58 @@ class ChatPlugin(Plugin):
         panel.activateWindow()
         panel.input.setFocus()
 
-    def _shutdown(self) -> None:
+    def _hide_panel_ui(self) -> None:
         if self._panel is not None:
-            if self._bridge is not None:
-                self._bridge.run_on_ui(self._panel.hide)
-            else:
-                self._panel.hide()
+            self._panel.hide()
 
     # -- 刷新/皮肤 ----------------------------------------------------------
 
-    def _refresh_all(self) -> None:
-        if self._bridge is not None:
-            self._bridge.run_on_ui(self._refresh_all_ui)
+    def refresh_all(self) -> None:
+        self.ctx.run_on_ui(self._refresh_all_ui)
 
     def _refresh_all_ui(self) -> None:
-        self._ensure_panel()
+        self.ensure_panel()
         panel = self._panel
         if panel is None:
             return
-        self._apply_skin_ui()
+        self.apply_skin_ui()
         cid = self._current_char_id()
         self._history_for(cid)
         panel.set_cards(
-            [(c.id, c.name) for c in self._registry.characters.values()], cid)
-        if self._state is not None:
-            panel.set_affinity(self._state.get("affinity") or 0)
+            [(c.id, c.name) for c in self.ctx.registry.characters.values()], cid)
+        panel.set_affinity(self.ctx.get_state("affinity") or 0)
         self._restore_conversation_ui()
 
-    def _apply_skin(self) -> None:
-        if self._bridge is not None:
-            self._bridge.run_on_ui(self._apply_skin_ui)
+    def apply_skin(self) -> None:
+        self.ctx.run_on_ui(self.apply_skin_ui)
 
-    def _apply_skin_ui(self) -> None:
+    def apply_skin_ui(self) -> None:
         if self._panel is None:
             return
         try:
-            skin = self._registry.ui(self._config.get("mods.ui", ""))
+            skin = self.ctx.registry.ui(self.ctx.config.get("mods", {}).get("ui", ""))
             self._panel.apply_theme(skin.theme if skin else {})
         except Exception as e:
             _log.warning("apply skin: %s", e)
 
     def _on_state_changed(self, payload) -> None:
         p = payload or {}
-        if str(p.get("key", "")) == "affinity" and self._bridge is not None:
+        if str(p.get("key", "")) == "affinity":
             val = p.get("value") or 0
-            self._bridge.run_on_ui(lambda: self._panel.set_affinity(val)
-                                   if self._panel is not None else None)
+            self.ctx.run_on_ui(lambda: self._panel.set_affinity(val)
+                               if self._panel is not None else None)
 
     # -- 角色 --------------------------------------------------------------
 
     def _current_char_id(self) -> str:
-        cid = str(self._config.get("mods.character", "") or "")
-        if cid and self._registry.character(cid) is not None:
+        cid = str(self.ctx.config.get("mods", {}).get("character", "") or "")
+        if cid and self.ctx.registry.character(cid) is not None:
             return cid
-        chars = self._registry.characters
+        chars = self.ctx.registry.characters
         return next(iter(chars)) if chars else ""
 
     def _current_char(self):
-        return self._registry.character(self._current_char_id())
+        return self.ctx.registry.character(self._current_char_id())
 
     def _pet_name(self) -> str:
         c = self._current_char()
@@ -368,9 +312,10 @@ class ChatPlugin(Plugin):
     def _history_for(self, cid: str) -> HistoryStore:
         if cid and cid == self._history_char_id and self._history is not None:
             return self._history
-        if cid:
+        cm = self.ctx.use("character_manager")
+        if cid and cm is not None:
             try:
-                d = self._cm.history_dir(cid)
+                d = cm.history_dir(cid)
             except ValueError:
                 d = os.path.join(paths.DATA_DIR, "chat_history", "default")
         else:
@@ -381,8 +326,9 @@ class ChatPlugin(Plugin):
         return self._history
 
     def _switch_character(self, char_id: str) -> None:
-        if self._cm is not None:
-            self._cm.switch(str(char_id))
+        cm = self.ctx.use("character_manager")
+        if cm is not None:
+            cm.switch(str(char_id))
 
     # -- 收发 --------------------------------------------------------------
 
@@ -390,7 +336,6 @@ class ChatPlugin(Plugin):
         text = str(text).strip()
         if not text:
             return
-        self._ensure_panel()
         hist = self._history_for(self._current_char_id())
         if self._panel is not None and self._panel.btn_back.isVisible():
             self._restore_conversation_ui()
@@ -398,16 +343,9 @@ class ChatPlugin(Plugin):
         if self._panel is not None:
             self._panel.add_user(text)
             self._panel.set_status("正在输入…")
-        self._bridge.say("……")
-        self._ctx.emit(EventNames.CHAT_SEND, {"text": text})
-        self._fire_api()
-
-    def _fire_api(self):
-        """把 LLM 请求投递到内核循环(Qt 线程调用, 不阻塞 UI)。"""
-        mm = self._ctx.use("module_manager") if self._ctx else None
-        if mm is not None:
-            return mm.fire(self._ask_api())
-        return self._ctx.task(self._ask_api()) if self._ctx else None
+        self.ctx.say("……")
+        self.ctx.emit(EventNames.CHAT_SEND, {"text": text})
+        self.ctx.task(self._ask_api())
 
     async def _ask_api(self) -> None:
         if self._api_busy:
@@ -417,16 +355,16 @@ class ChatPlugin(Plugin):
             cid = self._current_char_id()
             char = self._current_char()
             prompt = char.system_prompt if char else DEFAULT_PROMPT
-            emote_keys = list(self._registry.character_emotes(cid).keys())
+            emote_keys = list(self.ctx.registry.character_emotes(cid).keys())
             msgs = self._history_for(cid).current_conv()[-10:]
-            config = self._config.get("api", {}) or {}
+            config = self.ctx.config.get("api", {}) or {}
             reply = await self._provider.chat(
                 msgs, config, valid_emotions=set(emote_keys))
-            self._bridge.run_on_ui(self._on_api_done_ui, reply)
+            self.ctx.run_on_ui(self._on_api_done_ui, reply)
         except Exception as e:
             _log.warning("ask api: %s", e)
             failure = LLMReply("sarcastic", "(信号不太好……待会再聊。)", ok=False, error=str(e))
-            self._bridge.run_on_ui(self._on_api_done_ui, failure)
+            self.ctx.run_on_ui(self._on_api_done_ui, failure)
         finally:
             self._api_busy = False
 
@@ -442,17 +380,16 @@ class ChatPlugin(Plugin):
             return
         self._history_for(self._current_char_id()).append("assistant", reply.text)
         panel.add_pet(reply.text, self._pet_name())
-        if self._state is not None:
-            self._state.inc("affinity", 2)
-        self._bridge.say(reply.text)
-        self._ctx.emit(EventNames.CHAT_REPLY, {
+        cur = int(self.ctx.get_state("affinity") or 0) + 2
+        self.ctx.set_state("affinity", cur)
+        self.ctx.say(reply.text)
+        self.ctx.emit(EventNames.CHAT_REPLY, {
             "ok": True, "emotion": str(reply.emotion), "text": str(reply.text),
         })
 
     # -- 历史/会话 ----------------------------------------------------------
 
     def _new_conversation(self) -> None:
-        self._ensure_panel()
         self._history_for(self._current_char_id()).new_conversation()
         if self._panel is not None:
             self._panel.btn_back.hide()
@@ -460,7 +397,6 @@ class ChatPlugin(Plugin):
             self._panel.add_system("—— 新对话开始了 ——")
 
     def _clear_history(self) -> None:
-        self._ensure_panel()
         panel = self._panel
         if panel is None:
             return
@@ -476,7 +412,6 @@ class ChatPlugin(Plugin):
         panel.add_system("—— 历史记录已清空 ——")
 
     def _export_history(self) -> None:
-        self._ensure_panel()
         panel = self._panel
         if panel is None:
             return
@@ -493,7 +428,6 @@ class ChatPlugin(Plugin):
             panel.add_system("导出失败: " + str(e))
 
     def _export_json(self) -> None:
-        self._ensure_panel()
         panel = self._panel
         if panel is None:
             return
@@ -510,7 +444,6 @@ class ChatPlugin(Plugin):
             panel.add_system("导出失败: " + str(e))
 
     def _import_json(self) -> None:
-        self._ensure_panel()
         panel = self._panel
         if panel is None:
             return
@@ -527,8 +460,6 @@ class ChatPlugin(Plugin):
             panel.add_system("导入失败: " + str(e))
 
     def _restore_conversation(self) -> None:
-        """供面板信号(清空搜索/返回)调用; 可能在 Qt 线程, 直接刷新。"""
-        self._ensure_panel()
         self._restore_conversation_ui()
 
     def _restore_conversation_ui(self) -> None:
@@ -545,7 +476,6 @@ class ChatPlugin(Plugin):
         panel.btn_back.hide()
 
     def _search_history(self, kw: str) -> None:
-        self._ensure_panel()
         panel = self._panel
         if panel is None:
             return
@@ -560,7 +490,6 @@ class ChatPlugin(Plugin):
                 panel.add_pet(prefix + m["content"])
 
     def _show_history(self) -> None:
-        self._ensure_panel()
         panel = self._panel
         if panel is None:
             return

@@ -1,0 +1,8 @@
+{
+  "id": "feature.chat",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "聊天",
+  "main": "plugin.py",
+  "description": "聊天面板 + LLM 适配器(内置功能模组, 可禁用/删除/替换)"
+}

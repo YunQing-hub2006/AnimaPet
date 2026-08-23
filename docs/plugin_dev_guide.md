@@ -1,6 +1,8 @@
 # AnimaPet 插件开发指南
 
 > 面向第三方开发者: 新建功能模组(feature.*)的 Hello World、FeatureContext 白名单 API、
+> 两条线程规则、模组结构与热重载约定。内置的角色卡管理器/聊天窗口就是这种模组
+> (mods/feature.charcard、mods/feature.chat), 可整体删除换自己的实现。
 > 两条线程规则、模组结构与热重载约定。
 
 ## 1. 最小可用功能模组

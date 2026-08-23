@@ -1,0 +1,8 @@
+{
+  "id": "feature.charcard",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "角色卡管理器",
+  "main": "plugin.py",
+  "description": "角色卡 6 页签编辑器(内置功能模组, 可禁用/删除/替换)"
+}

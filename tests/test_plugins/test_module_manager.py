@@ -119,7 +119,7 @@ async def test_feature_auto_enabled_and_menu_registered(mm_env):
     assert mm.is_enabled("feature.demo")
     assert app.lifecycle.get_state("feature.demo") == "enabled"
     assert mm.instances.get("feature.demo") is not None
-    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)", "角色卡管理器…", "Demo 菜单"]
+    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)", "Demo 菜单"]
     # 私有数据容器跨周期可写
     inst = mm.instances["feature.demo"]
     assert mm.feature_data("feature.demo")["hello"] == "world"
@@ -136,7 +136,7 @@ async def test_feature_runtime_disable_enable(mm_env):
 
     await mm.set_enabled("feature.demo", False)
     assert app.lifecycle.get_state("feature.demo") == "unloaded"   # 完整卸载
-    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)", "角色卡管理器…"]  # 菜单已移除
+    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)"]  # 菜单已移除
     assert ("disable", None) in inst.events
     assert mm.instances.get("feature.demo") is None
     assert mm.is_enabled("feature.demo") is False
@@ -145,7 +145,7 @@ async def test_feature_runtime_disable_enable(mm_env):
     assert app.lifecycle.get_state("feature.demo") == "enabled"    # 全新实例
     new_inst = mm.instances["feature.demo"]
     assert new_inst is not None and new_inst is not inst
-    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)", "角色卡管理器…", "Demo 菜单"]
+    assert [label for label, _ in win.feature_menu] == ["模组管理", "设置 (API / 人设)", "Demo 菜单"]
     assert mm.feature_data("feature.demo")["hello"] == "world"     # 数据跨周期保留
     await app.stop()
 

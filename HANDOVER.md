@@ -50,17 +50,20 @@ JSON 导入导出）、`stream` 配置预留。
    `format="chara-1"`、id 命名、双名兼容、zip 规范、校验边界两套语义）。
 5. **PLAN.md 回填**：Phase 3/4 勾选 + 验收说明；HANDOVER 第 8 版。
 6. **Phase 4 聊天**：`anima/adapters/{base,openai_compat}.py`（async LLMProvider、
-   sync requests 包 to_thread、解析/降级）、`anima/plugins/chat.py`（ChatPlugin +
+   sync requests 包 to_thread、解析/降级）、`anima/plugins/chat.py`（ChatFeature 控制器 +
    按角色 HistoryStore）、`anima/window/chat_panel.py`（面板 + JSON 导入导出按钮）、
    `anima/models/chat.py`（ChatMessage/ChatHistory）。
 7. **Phase 4 测试**：`tests/test_plugins/test_chat_plugin.py` 6 个用例（解析/历史/
    面板/按角色隔离/历史浏览/缺 key 降级）。
-8. **main.py**：ChatPlugin 已接入官方插件栈。
+8. **方案 A（一切皆插件）**：角色卡管理器和聊天窗口改为内置功能模组
+   `mods/feature.charcard/`、`mods/feature.chat/`，由总管理器启停/删除/替换；
+   `main.py` 移除 ChatPlugin 硬编码，`module_manager` 移除 charcard 菜单硬编码；
+   FeatureContext 新增 task/run_on_ui/use。
 
 ### 当前测试状态
 
 ```text
-pytest tests/ -> 250 passed（约 21s，全绿）
+pytest tests/ -> 252 passed（约 21s，全绿）
 check_kernel_rules.py -> 840 行、纯标准库（v1.1.1 内核，未动）
 ```
 
@@ -162,7 +165,8 @@ README、tools/new_plugin.py；剩余 PyInstaller 打包、性能基准、tag v1
 - `migrate.export_chara`：规范化导出（format 标记 + 整体校验）。
 - `character_manager.history_dir`：`data/characters/<id>/chat_history.json`（Phase 4 已接管）。
 - `anima/adapters/`：LLMProvider/OpenAICompatProvider，任何异步 LLM 接入点。
-- `anima/plugins/chat.py`：ChatPlugin + HistoryStore（搜索/单条删除/JSON 导入导出）。
+- `anima/plugins/chat.py`：ChatFeature + HistoryStore（搜索/单条删除/JSON 导入导出），由 `mods/feature.chat` 驱动。
+- `mods/feature.charcard/` + `mods/feature.chat/`：内置功能模组，总管理器可启停/删除/替换。
 - `anima/window/tray.py`：系统托盘（角色/皮肤/退出）。
 - `docs/plugin_dev_guide.md` + `tools/new_plugin.py`：第三方开发指南与脚手架。
 - `loader._valid_rules` / `_one_emote`：逐文件降级范式（坏项丢弃 + `_VALIDATE_LIMIT`）。

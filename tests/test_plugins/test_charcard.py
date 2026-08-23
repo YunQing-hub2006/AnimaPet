@@ -62,6 +62,20 @@ def charcard_env(tmp_path, monkeypatch, qapp):
         "rules": [{"on": "pet.petted", "cooldown": 2, "then": [{"say": "原规则"}]}],
     }, ensure_ascii=False), encoding="utf-8")
 
+    fcard = mods_dir / "feature.charcard"
+    fcard.mkdir()
+    (fcard / "manifest.json").write_text(json.dumps({
+        "id": "feature.charcard", "type": "feature", "version": "1.0.0",
+        "name": "角色卡管理器", "main": "plugin.py"}, ensure_ascii=False), encoding="utf-8")
+    (fcard / "plugin.py").write_text(
+        '''class Feature:
+    id = 'feature.charcard'
+    name = '角色卡管理器'
+
+    def on_load(self, ctx):
+        ctx.add_menu_action('角色卡管理器…', lambda: None)
+''', encoding="utf-8")
+
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
@@ -199,4 +213,19 @@ async def test_wizard_creates_hotloads_and_deletes(charcard_env):
     finally:
         _restore(card, orig)
         mm.rescan()
+    await app.stop()
+
+
+async def test_charcard_feature_managed_by_module_manager(charcard_env):
+    """方案 A: feature.charcard 是受管功能模组, 可被总管理器禁用/再启用。"""
+    app, _, win, _, _, _ = charcard_env
+    mm = await start(charcard_env)
+    assert "feature.charcard" in mm.instances
+    assert any("角色卡管理器" in label for label, _ in win.feature_menu)
+    await mm.set_enabled("feature.charcard", False)
+    assert "feature.charcard" not in mm.instances
+    assert not any("角色卡管理器" in label for label, _ in win.feature_menu)
+    await mm.set_enabled("feature.charcard", True)
+    assert "feature.charcard" in mm.instances
+    assert any("角色卡管理器" in label for label, _ in win.feature_menu)
     await app.stop()

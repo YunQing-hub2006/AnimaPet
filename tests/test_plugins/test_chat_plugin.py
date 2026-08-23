@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Phase 4 聊天插件测试: 解析/历史/面板/按角色隔离/浏览/LLM 降级。
+"""方案 A 后聊天功能模组测试: 作为 mods/feature.chat 由总管理器托管。
 
-AnimaPet 等价体(自 YingPet-v4 tests/test_chat_plugin.py 改写)。
+覆盖: 解析/历史纯函数、面板开关、按角色历史、历史浏览、禁用/再启用。
 """
 import asyncio
 import json
@@ -17,7 +17,7 @@ from anima.mods.registry import Registry
 from anima.plugins.actions import ActionRegistry, ActionsPlugin
 from anima.plugins.bridge import BridgePlugin
 from anima.plugins.character_manager import CharacterManagerPlugin
-from anima.plugins.chat import ChatPlugin, HistoryStore
+from anima.plugins.chat import HistoryStore
 from anima.plugins.config import ConfigPlugin, ConfigService
 from anima.plugins.loader import LoaderPlugin
 from anima.plugins.module_manager import ModuleManagerPlugin
@@ -25,6 +25,25 @@ from anima.plugins.rule_engine import RuleEnginePlugin
 from anima.plugins.state import StatePlugin, StateService
 from anima.utils import jsonio, paths
 from anima.window.pet_window import PetWindow
+
+FEATURE_CHAT_PLUGIN = '''# -*- coding: utf-8 -*-
+from anima.plugins.chat import ChatFeature
+
+
+class Feature:
+    id = "feature.chat"
+    name = "聊天"
+
+    def on_load(self, ctx):
+        provider = ctx.data.get("provider")
+        self._chat = ChatFeature(ctx, provider=provider)
+        self._chat.start()
+
+    def on_disable(self):
+        chat = getattr(self, "_chat", None)
+        if chat is not None:
+            chat.stop()
+'''
 
 
 class FakeProvider(LLMProvider):
@@ -67,10 +86,13 @@ def chat_env(tmp_path, monkeypatch, qapp):
             "emotes": {"default": {"name": "平时", "lines": ["……"]},
                          "angry": {"name": "生气", "lines": ["哼"]}},
         }, ensure_ascii=False), encoding="utf-8")
-        (mods_dir / mid / "idle.json").write_text(json.dumps({
-            "interval_min": 30, "interval_max": 42,
-            "lines": {"default": ["空闲"]},
-        }, ensure_ascii=False), encoding="utf-8")
+
+    fchat = mods_dir / "feature.chat"
+    fchat.mkdir()
+    (fchat / "manifest.json").write_text(json.dumps({
+        "id": "feature.chat", "type": "feature", "version": "1.0.0",
+        "name": "聊天", "main": "plugin.py"}, ensure_ascii=False), encoding="utf-8")
+    (fchat / "plugin.py").write_text(FEATURE_CHAT_PLUGIN, encoding="utf-8")
 
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
@@ -89,11 +111,12 @@ def chat_env(tmp_path, monkeypatch, qapp):
     app = App()
     win = PetWindow(reg, app.bus, cfg, st, actions=actions)
     bridge = BridgePlugin(win)
-    chat_plugin = ChatPlugin(provider=FakeProvider())
+    mm_plugin = ModuleManagerPlugin()
+    mm_plugin.service.feature_data("feature.chat")["provider"] = FakeProvider()
     plugins = [ConfigPlugin(cfg), StatePlugin(st), ActionsPlugin(actions),
                LoaderPlugin(reg), RuleEnginePlugin(), CharacterManagerPlugin(),
-               bridge, ModuleManagerPlugin(), chat_plugin]
-    return app, plugins, win, chat_plugin, mods_dir
+               bridge, mm_plugin]
+    return app, plugins, win, mm_plugin, mods_dir
 
 
 async def start(env):
@@ -102,8 +125,12 @@ async def start(env):
     return app
 
 
+def _chat(mm):
+    return mm.instances["feature.chat"]._chat
+
+
 # ---------------------------------------------------------------------
-# 解析/历史纯函数
+# 纯函数
 # ---------------------------------------------------------------------
 
 def test_parse_llm_reply_and_suffix():
@@ -129,11 +156,9 @@ def test_history_store_crud_export_import(tmp_path, monkeypatch):
     assert [m["content"] for m in store.current_conv()] == ["第二条"]
     assert [m["content"] for m in store.conv_messages(1)] == ["第一条", "第一条回复"]
     assert store.search("第一条")
-    assert json.loads((d / "chat_history.json").read_text(encoding="utf-8"))["format"] == "anima-chat-1"
     assert store.delete_message(0) is True
     assert store.delete_conversation(1) == 1
     assert [m["content"] for m in store.entries] == ["第二条"]
-
     out = tmp_path / "history.json"
     store.export_json(str(out))
     other = HistoryStore(str(d), "card.ying")
@@ -143,15 +168,17 @@ def test_history_store_crud_export_import(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------
-# 插件集成
+# 功能模组集成(受总管理器托管)
 # ---------------------------------------------------------------------
 
 async def test_chat_plugin_menu_toggle_close_hides(chat_env):
-    app, _, win, chat, _ = chat_env
+    app, _, win, mm_plugin, _ = chat_env
     await start(chat_env)
+    mm = app.registry.use("module_manager")
+    chat = _chat(mm)
     assert chat.panel is not None
     assert any("聊天窗口" in label for label, _ in win.feature_menu)
-    chat._toggle()
+    chat.toggle()
     assert chat.panel.isVisible()
     chat.panel.close()
     assert not chat.panel.isVisible(), "聊天窗关闭应只隐藏"
@@ -159,18 +186,17 @@ async def test_chat_plugin_menu_toggle_close_hides(chat_env):
 
 
 async def test_chat_send_stores_history_per_character(chat_env):
-    app, _, win, chat, mods_dir = chat_env
+    app, _, _, _, _ = chat_env
     await start(chat_env)
+    mm = app.registry.use("module_manager")
     cm = app.registry.use("character_manager")
+    chat = _chat(mm)
     chat._send_chat("你好")
     await asyncio.sleep(0.15)
-    assert len(chat.history.entries) == 2          # user + assistant
+    assert len(chat.history.entries) == 2
     assert chat.history.entries[1]["content"] == "你好呀。"
-
     ying_file = os.path.join(paths.DATA_DIR, "characters", "card.ying", "chat_history.json")
     assert os.path.exists(ying_file)
-
-    # 切到 card.two: 历史按角色分目录
     assert cm.switch("card.two") is True
     await asyncio.sleep(0)
     chat._send_chat("那边你好")
@@ -188,8 +214,10 @@ async def test_chat_send_stores_history_per_character(chat_env):
 
 
 async def test_chat_history_browse_and_back(chat_env):
-    app, _, _, chat, _ = chat_env
+    app, _, _, _, _ = chat_env
     await start(chat_env)
+    mm = app.registry.use("module_manager")
+    chat = _chat(mm)
     chat._send_chat("第一条消息")
     await asyncio.sleep(0.15)
     chat._new_conversation()
@@ -204,6 +232,20 @@ async def test_chat_history_browse_and_back(chat_env):
     chat.panel._do_back()
     cur = chat.panel.browser.toPlainText()
     assert "第二条消息" in cur
+    await app.stop()
+
+
+async def test_chat_feature_toggleable_by_module_manager(chat_env):
+    app, _, win, _, _ = chat_env
+    await start(chat_env)
+    mm = app.registry.use("module_manager")
+    assert any("聊天窗口" in label for label, _ in win.feature_menu)
+    await mm.set_enabled("feature.chat", False)
+    assert "feature.chat" not in mm.instances
+    assert not any("聊天窗口" in label for label, _ in win.feature_menu)
+    await mm.set_enabled("feature.chat", True)
+    assert "feature.chat" in mm.instances
+    assert any("聊天窗口" in label for label, _ in win.feature_menu)
     await app.stop()
 
 

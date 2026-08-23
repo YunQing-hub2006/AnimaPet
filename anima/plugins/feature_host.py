@@ -79,6 +79,18 @@ class FeatureContext:
     def log(self, msg):
         _log.info("[%s] %s", self._mod_id, msg)
 
+    def task(self, coro):
+        """把协程调度到内核循环(跨线程安全; 经 module_manager.fire, 单线程测试回退 Task)。"""
+        return self._manager.fire(coro)
+
+    def run_on_ui(self, fn, *args, **kwargs):
+        """把函数投递到 Qt 主线程执行(QWidget 只能在主线程创建/访问)。"""
+        return self._manager.bridge.run_on_ui(fn, *args, **kwargs)
+
+    def use(self, name, default=None):
+        """按服务名获取官方服务(如 bridge/character_manager)。第三方模组请慎用。"""
+        return self._adapter.ctx.use(name, default)
+
     # ------------------------------------------------------------------
     # 官方高级接口(素材管理器等官方模组使用; 第三方模组请慎用)
     # ------------------------------------------------------------------
