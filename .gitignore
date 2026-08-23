@@ -2,6 +2,9 @@
 data/
 !data/.gitkeep
 
+# Mimosa 安全工具运行产物
+.mimosa/
+
 # Python
 __pycache__/
 *.pyc

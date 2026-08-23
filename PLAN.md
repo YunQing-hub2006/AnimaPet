@@ -271,8 +271,8 @@ main.py 新启动序）。
    data/backup/、源目录只读、--dry-run）
 7. [x] 测试改写 + 热重载专项：YingPet test_harness（对等回归并入集成测试）、
    test_safe_eval、test_plugins_v31（→test_features.py）、test_ui_mod 已改写；
-   **test_chat_plugin / test_charcard 随聊天(Phase 4)与角色卡编辑器(Phase 3)
-   功能落地时改写**；hotreload 专项（watcher 防抖/路径/插件接线/重扫生效/
+   **test_charcard 已随 Phase 3 角色卡编辑器落地改写；test_chat_plugin 随
+   聊天(Phase 4)时改写**；hotreload 专项（watcher 防抖/路径/插件接线/重扫生效/
    Qt 线程跨线程 rescan）已齐
 
 **验收**: 与 YingPet-v4 功能对等清单逐项打勾（角色/行为/天气/待办/时钟/
@@ -280,18 +280,26 @@ main.py 新启动序）。
 拖入新模组 ≤1 秒热生效（800ms 防抖 + 同步重扫，专项测试覆盖确定性路径）；
 卸载模组后 bus/registry 无残留（内核可逆性兑现，集成测试断言 bus.count()==0）。
 
-### Phase 3：.chara 角色卡规范化（1 周）—— 规划书 Phase 3
+### Phase 3：.chara 角色卡规范化（1 周）—— 规划书 Phase 3 ✅ 完成
 
-1. Pydantic 模型：CharacterCard/Expression/Animation/Behavior + JSON
-   Schema 导出（`docs/schema/chara.schema.json`）
-2. 格式规范文档 + 迁移工具升级（card.* ↔ .chara 互转）
-3. character_manager 对接新模型；charcard 编辑器（6 页签 GUI 原样保留）
-   保存走 Pydantic 校验
-4. 多角色并存与切换上下文隔离（聊天历史按角色分目录）
-5. ZIP 形式 .chara 加载（packer 已有 Zip-Slip 防护可复用）
+1. [x] Pydantic 模型：CharacterCard/Expression/Animation/Behavior + JSON
+   Schema 导出（docs/schema/chara.schema.json；tools/export_chara_schema.py
+   生成，测试断言无漂移）
+2. [x] 格式规范文档 + 迁移工具升级：docs/chara_format.md + migrate
+   export-chara/import-chara（card.* ↔ .chara 互转）
+3. [x] character_manager 对接新模型（card_model/history_dir）；charcard
+   编辑器 6 页签 GUI 平移到 anima/window/dialogs/charcard/（dialog/wizard/
+   assets），保存统一过 anima.models.load_card 整体预检，菜单接入
+   module_manager「角色卡管理器…」
+4. [x] 多角色并存与切换上下文隔离：聊天历史按角色分目录
+   data/characters/<id>/chat_history.json（迁移工具按当前角色分流）
+5. [x] ZIP 形式 .chara 加载：packer 扩展 + id/类型归一（chara→card、
+   补 card. 前缀），Zip-Slip 防护复用
 
-**验收**: 拖入 `.chara` 文件夹或 zip 安装新角色无需重启；坏 manifest
-报错明确且应用不崩；角色切换后人设/行为/历史完全隔离。
+**验收**: 拖入 .chara 文件夹或 zip 安装新角色无需重启（offscreen 测试覆盖
+安装+重扫可见）；坏 manifest 报错明确且应用不崩（整体校验/逐文件降级两套
+测试齐全）；角色切换后人设/行为/历史完全隔离（数据层测试 + 编辑器写回测试）。
+真机拖装/切换隔离仍在第 5 步用户环境冒烟。
 
 ### Phase 4：聊天与多 LLM（1 周）—— 规划书 Phase 4
 

@@ -1,243 +1,195 @@
-# AnimaPet 开发会话 · 工作交接记录（第 5 版）
+# AnimaPet 开发会话 · 工作交接记录（第 7 版 · Phase 3 完成）
 
-> **会话日期**: 2026-08-20（深夜续作）
-> **项目**: AnimaPet -- 基于 Anima 内核 v1.1 的桌面宠物元框架
+> **会话日期**: 2026-08-23（Phase 3 收尾：测试+提交+编辑器+文档全部落地）
+> **项目**: AnimaPet -- 基于 Anima 内核 v1.1.1 的桌面宠物元框架
 > **位置**: `E:\Zcode-work\AnimaPet`（git 已初始化，按里程碑提交）
-> **上游内核**: `E:\Zcode-work\Anima-v1.1`（v1.1 已完成冻结，**只读**，勿改）
+> **上游内核**: `E:\Zcode-work\Anima-v1.1`（v1.1.1 冻结，**只读**，勿改）
 > **迁移源**: `E:\dsh-work\YingPet-v4`（只读参考）
 
 ---
 
-## 一、当前进度快照（截至本交接）
+## ⚠️ 最重要的一句话（接手者先读）
 
-### **PLAN Phase 2 全部 7 项完成 ✅**（Phase 1 已在前两版完成）
+**Phase 3 已全部完成并提交，剩余只有用户真机冒烟（HANDOVER §五 第 5 步）。**
+当前工作区已无 Phase 3 的未提交改动（仅 `.mimosa/` 建议 gitignore）。
+提交历史：① 内核升级 v1.1.1；② Phase 3 数据层（模型/schema/.chara/按角色隔离）；
+③ 本次 GUI+测试+文档 commit（编辑完本文档后提交）。
 
-### 已完成并提交（12 个 commit）
+---
 
-| commit | 内容 |
-|---|---|
-| `8c8a899` | Phase 0 建仓：目录骨架、内核 v1.1 九模块 + 113 内核测试、venv、utils 四件套、events 常量表 |
-| `d6e08e5` | config/state 插件 |
-| `36210df` | HANDOVER 第 1 版 |
-| `b123852` | actions 插件 |
-| `c14866f` | HANDOVER 第 2 版 |
-| `901c4f6` | mods 数据层 + 真实模组数据 + 12 数据层测试 |
-| `5403daf` | loader 插件 |
-| `0d1e753` | HANDOVER 第 3 版 |
-| `d1c276c` | rule_engine+safe_eval、window 三件套、bridge、module_manager（HANDOVER §五 主体） |
-| `a8b84e9` | main.py 双线程启动序 + run.bat + 集成测试；PLAN 回填；HANDOVER 第 4 版 |
-| `8a6eb8a` | A 档修复：loop 注入、跨线程 rescan 调度、规则引擎事件索引 |
-| `fbc864e` | HANDOVER 补 A 档修复经验 |
-| `b256f26` | hotreload + character_manager + bridge 补窗口热刷新订阅 |
-| `7b20531` | 五个功能模组平移 + 设置对话框 + 迁移工具（本交接前最后一个功能 commit） |
-| `120bc07` | **真机反馈修复**：关闭辅助窗口不再退出宠物（quitOnLastWindowClosed=False + closeEvent→quit）+ ModsDialog 删除功能 + 对话框等待 Task/Future 兼容 |
+## 一、当前进度快照（截至 2026-08-23）
+
+### PLAN Phase 0/1/2/3 全部完成 ✅；Phase 4/5 待做
+
+Phase 3 五项子任务状态：
+
+| # | PLAN 子任务 | 状态 |
+|---|---|---|
+| 1 | Pydantic 模型 + JSON Schema 导出 | ✅ 完成（`anima/models/` + `docs/schema/chara.schema.json`，漂移测试） |
+| 2 | 格式规范文档 + 迁移工具 card.* ↔ .chara 互转 | ✅ 完成（`docs/chara_format.md` + `export-chara`/`import-chara`） |
+| 3 | charcard 编辑器 6 页签 GUI + Pydantic 校验 | ✅ 完成（`anima/window/dialogs/charcard/`，菜单接入 module_manager） |
+| 4 | 多角色并存与切换上下文隔离 | ✅ 完成（`character_manager.history_dir` + 迁移按角色分流） |
+| 5 | ZIP 形式 .chara 加载（packer 防护复用） | ✅ 完成（packer 扩展 + id/类型归一） |
+
+### 本会话完成的工作（已提交/待提交）
+
+1. **Phase 3 数据层测试**（`tests/test_plugins/test_models.py`、`test_mods_layer.py`、
+   `test_character_manager.py`、`test_tools.py` 新增 22 个用例）：模型别名/边界、
+   load_card/save_card 往返、schema 漂移、逐文件降级、packer 归一、迁移分流。
+2. **编辑器 GUI 平移**（`anima/window/dialogs/charcard/{__init__,assets,wizard,dialog}.py`）：
+   数据源从 `FeatureContext` 改为 `module_manager` 服务；保存动作统一过
+   `anima.models.load_card` 整体预检（坏数据弹错不落盘）；重扫走
+   `mm.rescan()` + `_wait_rescan` 模式；`module_manager.enable` 增加菜单
+   「角色卡管理器…」。
+3. **test_charcard.py 改写**（`tests/test_plugins/test_charcard.py`，3 个用例）：
+   管理器打开/卡内动画展示、四页签写回路由、新建向导→热加载→删除干净。
+4. **格式规范文档**：`docs/chara_format.md`（目录结构、四 JSON 字段表、
+   `format="chara-1"`、id 命名、双名兼容、zip 规范、校验边界两套语义）。
+5. **PLAN.md 回填**：Phase 3 五项勾选 + 验收说明；HANDOVER 第 7 版。
 
 ### 当前测试状态
 
+```text
+pytest tests/ -> 244 passed（约 19s，全绿）
+check_kernel_rules.py -> 840 行、纯标准库（v1.1.1 内核，未动）
 ```
-pytest tests/   →  219 passed
-  113 内核 + 10 utils + 7 基础插件 + 12 mods 层 + 4 loader 插件
-  + 18 rule_engine/safe_eval + 11 window/bridge + 14 module_manager(含设置/删除对话框)
-  + 8 hotreload/character_manager + 7 功能模组 + 5 ui 皮肤 + 4 迁移工具
-  + 6 集成(全链路/跨线程/TD1/对等回归/退出策略)
-check_kernel_rules.py → 785 行、纯标准库（过）
-migrate CLI dry-run → 对真实 YingPet 目录只读规划正常
-```
-
-### 关键里程碑（本会话）
-
-- **Phase 2 完成**：hotreload（800ms 防抖 + 线程感知重扫）、character_manager
-  （switch 事件链）、六个功能模组全平移（weather/todo/sysmon/clock/hello/packer）、
-  设置对话框、迁移工具、YingPet 测试改写（test_harness/test_safe_eval/
-  test_plugins_v31/test_ui_mod 四件等价体）+ hotreload 专项。
-- **真实数据 25 个模组对象**：card.ying 展开 + health + 3 皮肤 + 6 功能模组，
-  0 错误；帧数精确断言（idle 50 / talk 60）、归属隔离、行为开关、人设写回重扫
-  全部过对等回归。
-- **注意**：用户真机正在运行的实例是旧代码（22:21 启动），**重启后**才会带上
-  本批功能（5 新功能模组菜单 + 热加载 + 角色切换服务）；真机反馈的两处问题
-  （关闭辅助窗口退出宠物 / 缺删除入口）已在 `120bc07` 修复，同样需重启生效。
 
 ---
 
-## 二、重要澄清（避免接手者踩坑）
+## 二、提交与未提交状态
 
-1. **"v1.1 待办"旧版残留**（同前版）：`E:\Zcode-work\Anima-v1.1\HANDOVER.md`
-   后半部是旧草稿，升级清单已完成，勿再做 v1.1。
-2. **规则引擎按规则声明的事件名订阅**（内核通配 `"*"` 收不到事件名），
-   订阅与分发索引随 `mods.reloaded` 重建（见 `anima/plugins/rule_engine.py`）。
-3. **feature 禁用 = 完整卸载**；再启用 = 全新实例重新 `on_load`；
-   私有数据经 `module_manager.feature_data(id)` 跨周期保留。
-4. **jsonio.load 默认值递归复制**（`_copy_defaults`）：运行时点路径写入不再
-   污染模块级 DEFAULT_CONFIG；浅合并语义不变。
-5. **main.py 互斥量在 `main()` 里**（测试 import main 不触发锁）；
-   `_build_stack()/_kernel_main()` 可直接复用；内核循环经
-   `ModuleManagerPlugin.bind_loop` 注入（`Service.bind()` 只增不改）。
-6. **功能模组契约 = YingPet FeatureContext 白名单同名平移**：第三方/老模组
-   plugin.py 只需把 `from core import ...` 改成 `from anima.utils import ...`，
-   其余（class Feature + on_load/on_enable/on_disable + ctx API）零改动。
-   packer 类模组的纯函数请复用 `anima.mods.packer`。
+已完成提交：
+
+```text
+ab239e9 chore: 内核升级 v1.1.0 -> v1.1.1（失败回滚/重启安全）
+6617f5e feat: Phase 3 角色卡模型层——Pydantic 模型/schema/.chara 包/按角色隔离
+（本次收尾的 GUI+test_charcard+docs 将作为第三个 commit）
+```
+
+仍建议：`.mimosa/`（Mimosa 安全工具运行产物）加入 .gitignore 或忽略。
 
 ---
 
-## 三、目录地图（当前实况）
+## 三、重要澄清与设计决策（勿偏离）
 
-```
+1. **校验边界分工**：`anima.models.load_card/save_card` = 整体校验（编辑器/工具
+   保存把关，坏数据报 `ValueError` 带文件名）；`loader._build_card` = 逐文件降级
+   （坏表情/规则/台词段丢弃记日志，其余照常）。测试两套语义都有覆盖。
+2. **.chara 包格式**：物理结构 = YingPet card.* 文件夹 + `manifest.format="chara-1"`；
+   zip 打包经 `packer.export_mod`，导入走 `packer.import_mod_zip`（Zip-Slip 防护）；
+   `type="chara"` 装完必须回写 `type="card"` + id 补 `card.` 前缀。
+3. **Behavior.on 必填非空**；rule_engine 同时支持 `when` 和 `if`，模型 extra=ignore
+   只校验不裁剪，规则原文透传。
+4. **编辑器保存语义**：人设/动画/台词/行为/表情页签改 `raw` dict 原样回写到
+   source_file，但保存前整体预检（load_card）；新建向导生成自包含卡。
+5. **其余沿用第 6 版**：TD1 双线程、QObject 亲和性、feature 禁用=完整卸载、
+   jsonio 路径安全、main.py 互斥量在 `main()` 里。
+
+---
+
+## 四、目录地图（Phase 3 后）
+
+```text
 E:\Zcode-work\AnimaPet\
-├── HANDOVER.md             ← 本文件（第 5 版）
-├── PLAN.md                 ← Phase 0/1/2 全部勾选完成; Phase 3/4/5 待做
-├── main.py                 ← ✅ 单实例锁 + 9 插件栈(含 hotreload/character_manager)
-├── run.bat                 ← ✅ pythonw 启动器
+├── HANDOVER.md / CLAUDE.md / 内核更换说明.md / PLAN.md
+├── main.py / run.bat
 ├── tools\
-│   └── migrate_yingpet.py  ← ✅ 数据迁移(config/state/chat_history+备份+dry-run)
+│   ├── migrate_yingpet.py      migrate / export-chara / import-chara
+│   └── export_chara_schema.py  schema 生成器（幂等）
+├── docs\
+│   ├── chara_format.md         本版新增：.chara 格式规范
+│   └── schema\chara.schema.json
 ├── anima\
-│   ├── core\               ← v1.1 内核 9 模块（785 行，冻结勿改）
-│   ├── events.py           ← EventNames 常量
-│   ├── plugins\
-│   │   ├── config.py / state.py / actions.py / loader.py    ← ✅
-│   │   ├── safe_eval.py / rule_engine.py                    ← ✅
-│   │   ├── bridge.py       ← ✅ (+mods.reloaded→窗口刷新订阅)
-│   │   ├── feature_host.py / module_manager.py              ← ✅
-│   │   ├── hotreload.py    ← ✅ ModsWatcher(Qt 线程)+防抖→线程感知 rescan
-│   │   └── character_manager.py ← ✅ current/switch + 事件链
-│   ├── mods\               ← ✅ loader/registry/packer（纯数据层）
-│   ├── utils\              ← ✅ paths/log/jsonio/theme
+│   ├── core\                   v1.1.1 内核（冻结勿改）
+│   ├── models\                 Pydantic 校验层
+│   ├── plugins\...             config/state/actions/loader/rule_engine/…/character_manager/module_manager
+│   ├── mods\...                loader/packer/registry
+│   ├── utils\...                paths/log/jsonio/theme
 │   └── window\
-│       ├── pet_window.py / animator.py / bubble.py          ← ✅
-│       └── dialogs\        ← ✅ modmanager.py + settings.py
-├── mods\
-│   ├── card.ying + behavior.health + ui.{default,dark,sakura}  ← ✅
-│   └── feature.{hello,weather,todo,sysmon,clock,packer}        ← ✅ 六个功能模组
-├── data\                   ← 运行时生成（gitignore）
-└── tests\
-    ├── conftest.py         ← QT_QPA_PLATFORM=offscreen
-    ├── test_core\          ← 113 内核测试
-    ├── test_plugins\       ← basic/mods_layer/loader/safe_eval/rule_engine/window/
-    │                          bridge/module_manager/hotreload/character_manager/
-    │                          features/ui_mod（共 97 个）
-    ├── integration\        ← test_full_stack.py（真实 mods 全链路 + TD1 + 对等回归）
-    └── test_utils.py / test_tools.py  ← 10 + 4
+│       ├── pet_window.py / animator.py / bubble.py
+│       └── dialogs\
+│           ├── modmanager.py / settings.py
+│           └── charcard\       __init__.py / dialog.py / wizard.py / assets.py
+├── mods\                       card.ying + 3 皮肤 + 6 功能模组
+├── data\                      运行时生成（gitignore）
+└── tests\                      244 个（Phase 3 全绿）
 ```
 
 ---
 
-## 四、已定关键设计（按批准的计划，勿偏离）
+## 五、下一步（只剩真机冒烟）
 
-1. **双线程（TD1-A）**：Qt 主线程 `app.exec()`；内核 asyncio 循环 daemon 线程；
-   跨线程调度统一走 `module_manager.fire(coro)`；PetWindow 在 Qt 线程创建
-   （main.py `_build_stack`）；UI 线程只 emit；内核线程动 UI 走
-   `bridge.run_on_ui`（QObject 队列封送，主线程直调）。
-2. **QObject 亲和性铁律**：QFileSystemWatcher/QTimer 等必须在 Qt 主线程创建
-   （hotreload 插件经 `bridge.run_on_ui` 保证），否则信号投递到内核线程的
-   asyncio 循环（没有 Qt 事件循环）永远不送达。
-3. **module_manager 服务**：`list_mods/set_enabled/import_zip/export_zip/
-   delete_mod/create_feature_mod/rescan`；`rescan()` 线程感知（内核线程同步
-   返回 None，其他线程调度到内核循环返回 Future，调用方 `fut.result(5)`）；
-   数据模组启停=config+重建；feature 启停=内核 lifecycle（禁用=完整卸载）。
-4. **事件名沿用 YingPet**；`character.switch`（请求）→窗口刷新→
-   `character.switched`（完成）链由 character_manager + 窗口订阅实现。
-5. **功能模组契约**：`class Feature` + `on_load(ctx)/on_enable/on_disable`，
-   ctx = FeatureContext 白名单（emit/on/say/emote/add_menu_action/get_state/
-   set_state/log/registry/config/save_config/reload/register_action/data/pet/
-   open_path），与 YingPet 同名；FeatureAdapter 强制 `dependencies=[]`。
-6. **jsonio 路径安全**：项目根内校验 + 拒 `..` 段 + 默认值递归复制。
+### 第 5 步（真机冒烟，用户环境）：重启应用 → 拖入 .chara zip 新角色 →
+角色切换后人设/行为/历史完全隔离 → 编辑器改人设即热生效。
+
+> 用户真机实例一直是旧代码，所有 Phase 3 功能都要重启后才可见。
+> 若冒烟发现问题，回来改代码后补测试并重新提交。
 
 ---
 
-## 五、剩余任务（按序）
+## 六、不用干什么（明确排除）
 
-### 下一步：Phase 3 —— .chara 角色卡规范化（PLAN.md §五 Phase 3）
-
-1. Pydantic 模型（CharacterCard/Expression/Animation/Behavior）+ JSON Schema
-   导出 `docs/schema/chara.schema.json`
-2. 格式规范文档 + 迁移工具升级（card.* ↔ .chara 互转，`tools/migrate_yingpet.py`
-   已铺好 config/state/chat_history 平移，补 chara 转换即可）
-3. **charcard 编辑器**（6 页签 GUI，源 `E:\dsh-work\YingPet-v4\mods\feature.charcard\*`
-   1,273 行，原样保留 + 保存走 Pydantic 校验）；这是 Phase 2 验收里"角色卡编辑"
-   项的去向
-4. 多角色并存与切换上下文隔离（聊天历史按角色分目录）
-5. ZIP 形式 .chara 加载（packer 防护复用）
-
-### 后续阶段
-
-- **Phase 4 聊天**：`LLMProvider` 抽象 + `openai_compat`（源
-  `E:\dsh-work\YingPet-v4\mods\feature.chat\*`）、chat 插件/面板、
-  chat_history 分角色分会话；YingPet test_chat_plugin 改写随此完成
-- **Phase 5 生态**：tray、plugin_dev_guide、PyInstaller 打包、README、v1.0 tag
-- **真机 GUI 冒烟**：重启应用后对照对等清单逐项过（新功能模组菜单/热加载/
-  角色切换/设置），用户当前运行的实例是旧代码
-- test_charcard.py 改写随 Phase 3 编辑器落地
+1. 不要再改 `anima/core/`（v1.1.1 冻结）。
+2. 不要做 Phase 4（聊天/LLM）——只留了 `history_dir` 落点。
+3. 不要做 Phase 5（tray/打包/README/tag）。
+4. 不要删 `E:\Zcode-work\Anima-core-old\core` 归档（等真机确认后）。
+5. 不要重写编辑器（原样平移 + 数据源改造，别改布局/样式）。
+6. 不要在编辑器里引入新依赖（PyQt6 + pydantic 已够）。
+7. 不要动 YingPet-v4 源码（只读参考）。
 
 ---
 
-## 六、环境与复跑
+## 七、可继承的工作资产
+
+- `anima.models.load_card/save_card`：编辑器/工具/迁移整体校验；Phase 4 人设注入可复用 `CharacterCard.system_prompt`。
+- `tools/export_chara_schema.py`：改模型后重新生成 schema（测试断言同步）。
+- `packer.import_mod_zip` + `migrate.import_chara`：拖入 zip 安装新角色入口。
+- `migrate.export_chara`：规范化导出（format 标记 + 整体校验）。
+- `character_manager.history_dir`：`data/characters/<id>/chat_history.json` 已定死，Phase 4 直接接管。
+- `loader._valid_rules` / `_one_emote`：逐文件降级范式（坏项丢弃 + `_VALIDATE_LIMIT`）。
+- `anima/window/dialogs/charcard/`：编辑器 GUI（dialog/wizard/assets + 包内 wait_fire 工具）。
+- 对话框平移先例：`settings.py` / `modmanager.py`（mm 服务 + `_wait_fire` 模式）。
+
+---
+
+## 八、坑与经验（本会话新增）
+
+- **packer 归一分支的坑**：`import_mod_zip` 里 `mod_id` 先归一为 `card.xxx` 后，
+  `new_id != mod_id` 在无目录冲突时恒为 False，导致 `chara→card` 类型、id 前缀
+  都没有回写 manifest（扫描仍报未知类型）。修复：用 `raw_id` 比较，`mtype=="chara"`
+  必须无条件回写。测试 `test_packer_import_chara_normalizes_type_and_id` 已覆盖。
+- **migrate chat_history 分流的坑**：计划项 kind 是 `chat_history[<id>]`，但复制分支
+  只判断 `kind == "chat_history"`，导致按角色文件被当字符串写坏。修复：
+  `kind.startswith("chat_history")`。测试 `test_migrate_chat_history_split_by_character` 已覆盖。
+- **命令行中文/`\n` 转义**：写测试脚本时字符串里的换行转义容易在 heredoc/模板字面量
+  中被二次解释，务必用 `ast.parse` 或 repr 检查生成文件后再跑。
+- **菜单断言**：module_manager 新增「角色卡管理器…」后，`test_module_manager` 的三处
+  feature_menu 断言已同步更新。
+- **Mimosa hook / Jsonio**：仓库内写文件走 `jsonio.save`（项目根白名单 + 原子写），
+  测试临时目录记得 monkeypatch `jsonio._BASE`。
+
+---
+
+## 九、环境与复跑
 
 ```bash
 cd E:\Zcode-work\AnimaPet
-.venv\Scripts\python -m pytest tests/ -v          # 当前 216 全绿
-.venv\Scripts\python check_kernel_rules.py        # 785 行 + 纯标准库
-.venv\Scripts\python tools\migrate_yingpet.py --dry-run   # 迁移演练(只读)
-.venv\Scripts\python main.py                      # 真机启动(无控制台用 run.bat)
-.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pytest tests/ -q          # 244 passed
+.venv\Scripts\python check_kernel_rules.py        # 840 行 + 纯标准库
+.venv\Scripts\python tools\export_chara_schema.py # schema 幂等
+.venv\Scripts\python tools\migrate_yingpet.py migrate --dry-run
+.venv\Scripts\python tools\migrate_yingpet.py export-chara card.ying --out E:\ying.chara.zip
+.venv\Scripts\python tools\migrate_yingpet.py import-chara E:\mio.chara.zip --activate
+.venv\Scripts\python main.py                      # 真机启动（无控制台用 run.bat）
 ```
 
-> 集成测试会临时写真实 `mods/card.ying/manifest.json`（try/finally 还原）；
-> 若真机实例正在运行且已带 hotreload，测试期间勿同时操作 mods 目录。
-
 ---
 
-## 七、坑与经验（本会话实录）
+## 十、参考文档
 
-- **quitOnLastWindowClosed 会"杀死"常驻宠物**：宠物窗口是 Qt.Tool 型**不参与**
-  "最后一个窗口"计数，而打包/待办等功能窗口是无父窗口的普通 QWidget（参与计数）。
-  默认 True 时，关掉打包窗口 = 关闭最后一个计数窗口 = 整个宠物退出（真机反馈
-  实锤）。已改 `main._configure_qt` → False，退出只走右键菜单 quit /
-  PetWindow.closeEvent→quit。
-- **asyncio.Task.result() 不接受超时参数**：`fire()` 在单线程测试环境返回
-  asyncio.Task（生产跨线程才返回 concurrent Future），`fut.result(10)` 会直接
-  TypeError（不是 InvalidStateError）→ 误入失败分支弹警告框阻塞。对话框统一
-  走 `_wait_fire()`：Task 用无参 result() 并容忍 InvalidStateError（外层事件
-  循环推动），concurrent Future 用带超时 result()。
-- **删除功能是用户刚需**：ModsDialog 行内右键有"删除模组…"（确认 → feature
-  先内核卸载 → rmtree → 热重载）；第三方 feature 模组若 `from core import ...`
-  （v2 时代写法）会加载失败（No module named 'core'），契约是 `from anima...`。
-- **QObject 线程亲和性**：hotreload 的 QFileSystemWatcher 若在内核线程创建，
-  directoryChanged 信号永远不送达（内核线程只有 asyncio 循环）。凡 Qt 对象
-  一律经 `bridge.run_on_ui` 在 Qt 线程创建（见 hotreload 插件）。
-- **热重载三步链**：watcher 只触发 `module_manager.rescan()`（线程感知）→
-  loader 发 `mods.reloaded` → rule_engine 重建订阅/索引、module_manager 对账
-  feature、**bridge 刷新窗口**（这一步是前几版缺失的缺口，帧源/皮肤此前不更新）。
-- **跨线程改注册表的唯一合法路径**：`mm.rescan()` 内核线程同步、其他线程
-  经 `fire` 调度返回 Future；对话框 `fut.result(5)` 等内核完成（内核侧重扫
-  只入队 run_on_ui、不等 Qt，故不会死锁）。`Service.bind()` 只增不改——
-  load 晚于 bind_loop，用 None 覆盖会复活 "fire dropped" 静默失效。
-- **feature 模组平移成本极低**：FeatureContext 白名单同名后，五个模组仅
-  `from core import log` → `from anima.utils import log`；packer 的纯函数核心
-  已提取到 anima.mods.packer，插件只留 UI+接线。注意模组对象**没有 .type
-  字段**，显示类型要用 isinstance 判定（YingPet 原代码 `getattr(m, "type")`
-  永远拿到 "?" 的坑）。
-- **扫描目录排序决定"第一个角色"**：`scan_mods` 按目录名排序，
-  `card.two` < `card.ying`；测试预期"第一个启用的"时别想当然。
-- **测试写真实仓库数据的纪律**：对等回归要改 `card.ying/manifest.json`
-  验证写回时，用 try/finally 还原并断言还原成功，防止中断留下脏数据。
-- **设置对话框测试需 fixture 里有角色卡**（`_current_char` 依赖），
-  module_manager 菜单断言随"设置"项新增而更新（两处）。
-- **Mimosa hook**：仍拦截含 `..` 字面量/开放路径拼接的源码写入（jsonio 用
-  `chr(46)*2`）；git commit 兼容提示不阻断。
-- **终端中文乱码**：cmd 下看日志用 `git log --oneline --encoding=utf-8` 或 PowerShell。
-
----
-
-## 八、参考文档
-
-- 总计划：`PLAN.md`（Phase 0/1/2 ✅；Phase 3/4/5 待做 + 验收标准）
+- 总计划：`PLAN.md`（Phase 0-3 ✅；Phase 4/5 待做 + 验收标准）
+- `.chara` 格式规范：`docs/chara_format.md`；JSON Schema：`docs/schema/chara.schema.json`
 - 内核 API / 并发模型 / 插件模板：`E:\Zcode-work\Anima-v1.1\docs\` 三份
-- 迁移源（只读）：feature.charcard/feature.chat 源码 + 其测试
-  （`E:\dsh-work\YingPet-v4\mods\feature.charcard\*`、`feature.chat\*`、
-  `tests\test_charcard.py`、`tests\test_chat_plugin.py`）—— Phase 3/4 的主料
+- 迁移源（只读）：YingPet `feature.charcard/*` + `tests/test_charcard.py`（改写蓝本）
 
-> 接手者从第五节"Phase 3 .chara 角色卡规范化"继续。本会话新增坐标：
-> 插件=`anima/plugins/{hotreload,character_manager}.py`、
-> 对话框=`anima/window/dialogs/settings.py`、
-> 模组=`mods/feature.{weather,todo,sysmon,clock,packer}/`、
-> 工具=`tools/migrate_yingpet.py`、
-> 测试=`tests/test_plugins/{test_hotreload,test_character_manager,test_features,test_ui_mod}.py`+`tests/test_tools.py`。
+> **接手者从真机冒烟继续（第 5 步）；在此之前不要动 Phase 3 代码。**
