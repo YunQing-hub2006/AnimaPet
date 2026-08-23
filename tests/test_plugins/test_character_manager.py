@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """character_manager 插件测试: 当前角色解析 + 程序化切换 + character.switch/switched 事件链。"""
 import json
+import os
 
 import pytest
 from PyQt6.QtWidgets import QApplication
@@ -106,4 +107,46 @@ async def test_current_falls_back_when_config_stale(stack):
     cm.config.set("mods.character", "card.nope")
     assert cm.active_id() == "card.two"
     assert cm.current().id == "card.two"
+    await app.stop()
+
+
+# ----------------------------------------------------------------------
+# Phase 3: card_model / history_dir
+# ----------------------------------------------------------------------
+
+async def test_card_model_returns_aggregate(stack):
+    app = await start(stack)
+    cm = app.registry.use("character_manager")
+    card = cm.card_model("card.ying")
+    assert card.id == "card.ying"
+    assert card.behaviors == []          # fixture 卡没有子文件 → 聚合为空列表
+    await app.stop()
+
+
+async def test_card_model_bad_card_raises(stack):
+    app = await start(stack)
+    cm = app.registry.use("character_manager")
+    mf = os.path.join(paths.MODS_DIR, "card.ying", "manifest.json")
+    with open(mf, "r", encoding="utf-8") as f:
+        orig = f.read()
+    try:
+        with open(mf, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "", "type": "card"}))
+        with pytest.raises(ValueError, match="id"):
+            cm.card_model("card.ying")
+    finally:
+        with open(mf, "w", encoding="utf-8") as f:
+            f.write(orig)
+    await app.stop()
+
+
+async def test_history_dir_creates_and_validates(stack, tmp_path, monkeypatch):
+    app = await start(stack)
+    cm = app.registry.use("character_manager")
+    monkeypatch.setattr(paths, "DATA_DIR", str(tmp_path / "data"))
+    d = cm.history_dir("card.ying")
+    assert d == str(tmp_path / "data" / "characters" / "card.ying")
+    assert os.path.isdir(d)
+    with pytest.raises(ValueError):
+        cm.history_dir("../evil")
     await app.stop()

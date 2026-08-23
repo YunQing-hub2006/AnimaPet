@@ -25,6 +25,9 @@ _log = log.get("loader")
 
 VALID_TYPES = ("card", "character", "anim", "emote", "idle", "behavior", "feature", "ui")
 
+#: card 展开时逐文件校验的最大条目数(表情/规则/台词段), 防坏数据拖垮扫描。
+_VALIDATE_LIMIT = 1000
+
 
 # ----------------------------------------------------------------------
 # 模组对象
@@ -291,12 +294,16 @@ def _build_emotes(d, data):
 
 
 def _one_emote(key, e, d, raw, character="", version=""):
+    try:
+        hold_ms = max(500, int(e.get("hold_ms", 4000)))
+    except (TypeError, ValueError):
+        hold_ms = 4000
     return EmoteDef(
         id=key,
         name=str(e.get("name", key)),
         image=str(e.get("image", "")),
         anim=str(e.get("anim", "")),
-        hold_ms=max(500, int(e.get("hold_ms", 4000))),
+        hold_ms=hold_ms,
         lines=[str(x) for x in (e.get("lines") or []) if str(x).strip()],
         owner_dir=d,
         description=str(e.get("description", "")),
@@ -321,7 +328,12 @@ def _resolve_anim_ref(card_id, value, fallback):
 
 
 def _build_card(d, data, card_id):
-    """把角色卡文件夹展开为一组注册表对象(命名空间 id + character 归属)。"""
+    """把角色卡文件夹展开为一组注册表对象(命名空间 id + character 归属)。
+
+    子文件坏数据逐文件降级(Phase 3 校验边界): 单个表情/规则/台词段非法
+    -> 丢该项记日志, 其余照常展开 -- 与 YingPet"绝不因坏数据崩溃"一致;
+    坏 manifest 本身(scan_mods 层)才整卡报错。
+    """
     version = str(data.get("version", ""))
     mods = []
 
@@ -361,6 +373,7 @@ def _build_card(d, data, card_id):
         if isinstance(pack, dict):
             for key, e in pack.items():
                 if not isinstance(e, dict):
+                    _log.warning("card %s: 表情 %r 非法(不是对象), 已跳过", card_id, key)
                     continue
                 em = _one_emote(str(key), e, d, raw, character=card_id, version=version)
                 em.source_file = "emotes.json"
@@ -379,11 +392,16 @@ def _build_card(d, data, card_id):
             sections = {"default": [str(x) for x in lines if str(x).strip()]}
         else:
             sections = {}
+        try:
+            lo = max(30, int(raw.get("interval_min", 180)))
+            hi = max(30, int(raw.get("interval_max", 420)))
+        except (TypeError, ValueError):
+            _log.warning("card %s: idle.json 间隔字段非法, 用默认 180~420", card_id)
+            lo, hi = 180, 420
         mods.append(IdlePack(
             id=card_id + ":idle", dir=d,
             name="%s 的台词包" % data.get("name", card_id), sections=sections,
-            interval_min=max(30, int(raw.get("interval_min", 180))),
-            interval_max=max(30, int(raw.get("interval_max", 420))),
+            interval_min=lo, interval_max=hi,
             description="角色卡 %s 的内置台词" % card_id,
             character=card_id, version=version, raw=raw,
             source_file="idle.json"))
@@ -393,12 +411,36 @@ def _build_card(d, data, card_id):
     if os.path.isfile(beh_path):
         raw = jsonio.load(beh_path, {})
         rules = raw.get("rules")
+        rules = _valid_rules(rules, card_id) if isinstance(rules, list) else []
         mods.append(BehaviorMod(
             id=card_id + ":behaviors", dir=d,
             name="%s 的行为规则" % data.get("name", card_id),
-            rules=rules if isinstance(rules, list) else [],
+            rules=rules,
             description="角色卡 %s 的内置行为" % card_id,
             character=card_id, version=version, raw=raw,
             source_file="behaviors.json"))
 
     return mods
+
+
+def _valid_rules(rules, card_id):
+    """behaviors.json rules 逐条校验降级: on 非空才保留。
+
+    校验通过保留**原始 dict**(模型 extra=ignore 不回写, 规则里的
+    ``if`` 等未声明字段原样透传给规则引擎)。
+    """
+    from anima.models import Behavior
+    out = []
+    for r in rules[:_VALIDATE_LIMIT]:
+        if not isinstance(r, dict):
+            _log.warning("card %s: 行为规则非法(不是对象), 已跳过", card_id)
+            continue
+        try:
+            Behavior(**r)
+        except Exception as e:
+            _log.warning("card %s: 行为规则 %r 校验失败已跳过: %s", card_id, r.get("on"), e)
+            continue
+        out.append(r)
+    if len(rules) > _VALIDATE_LIMIT:
+        _log.warning("card %s: 行为规则超过 %d 条, 多余部分忽略", card_id, _VALIDATE_LIMIT)
+    return out

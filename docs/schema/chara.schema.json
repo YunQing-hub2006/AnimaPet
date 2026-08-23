@@ -1,0 +1,218 @@
+{
+  "$defs": {
+    "Animation": {
+      "description": "帧动画(anims/<短名>/ 目录约定或外部 anim.* 素材)。",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "fps": {
+          "default": 12,
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Fps",
+          "type": "integer"
+        },
+        "frames_dir": {
+          "default": "frames",
+          "title": "Frames Dir",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Animation",
+      "type": "object"
+    },
+    "Behavior": {
+      "description": "行为规则(behaviors.json rules 的一项)。\n\n``on`` 必填非空 —— 没有触发事件的规则永远不生效, 视为坏数据报错;\n编辑器新增/更新规则同样经本模型把关。",
+      "properties": {
+        "on": {
+          "minLength": 1,
+          "title": "On",
+          "type": "string"
+        },
+        "when": {
+          "default": "",
+          "title": "When",
+          "type": "string"
+        },
+        "cooldown": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cooldown",
+          "type": "integer"
+        },
+        "then": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Then",
+          "type": "array"
+        }
+      },
+      "required": [
+        "on"
+      ],
+      "title": "Behavior",
+      "type": "object"
+    },
+    "Expression": {
+      "description": "表情(emotes.json 的一项; id 为键名, 如 default/tsundere)。",
+      "properties": {
+        "id": {
+          "default": "",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "image": {
+          "default": "",
+          "title": "Image",
+          "type": "string"
+        },
+        "anim": {
+          "default": "",
+          "title": "Anim",
+          "type": "string"
+        },
+        "hold_ms": {
+          "default": 4000,
+          "title": "Hold Ms",
+          "type": "integer"
+        },
+        "lines": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lines",
+          "type": "array"
+        }
+      },
+      "title": "Expression",
+      "type": "object"
+    },
+    "IdleLines": {
+      "description": "空闲台词包(idle.json): 分段台词(default/sit/night/petted/...)。",
+      "properties": {
+        "interval_min": {
+          "default": 180,
+          "title": "Interval Min",
+          "type": "integer"
+        },
+        "interval_max": {
+          "default": 420,
+          "title": "Interval Max",
+          "type": "integer"
+        },
+        "lines": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Lines",
+          "type": "object"
+        }
+      },
+      "title": "IdleLines",
+      "type": "object"
+    }
+  },
+  "description": "角色卡聚合视图: 一个角色卡文件夹的全部内容。\n\n``expressions`` 接受别名 ``emotes``; 字典形态 ``{id: {...}}`` 与\n列表形态等价(见 _expressions_from_dict)。",
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "format": {
+      "default": "",
+      "title": "Format",
+      "type": "string"
+    },
+    "version": {
+      "default": "1.0.0",
+      "title": "Version",
+      "type": "string"
+    },
+    "name": {
+      "default": "",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "system_prompt": {
+      "default": "",
+      "title": "System Prompt",
+      "type": "string"
+    },
+    "idle_anim": {
+      "default": "",
+      "title": "Idle Anim",
+      "type": "string"
+    },
+    "talk_anim": {
+      "default": "",
+      "title": "Talk Anim",
+      "type": "string"
+    },
+    "animations": {
+      "items": {
+        "$ref": "#/$defs/Animation"
+      },
+      "title": "Animations",
+      "type": "array"
+    },
+    "emotes": {
+      "items": {
+        "$ref": "#/$defs/Expression"
+      },
+      "title": "Emotes",
+      "type": "array"
+    },
+    "idle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IdleLines"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "behaviors": {
+      "items": {
+        "$ref": "#/$defs/Behavior"
+      },
+      "title": "Behaviors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "title": "AnimaPet .chara Character Card",
+  "type": "object",
+  "$id": "https://animapet.local/schema/chara.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

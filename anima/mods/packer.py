@@ -9,7 +9,8 @@ import zipfile
 from anima.utils import log
 
 _log = log.get("packer")
-TYPE_NAMES = {"character": "角色", "anim": "动画", "emote": "表情", "idle": "台词",
+TYPE_NAMES = {"character": "角色", "card": "角色卡", "chara": "角色卡",
+              "anim": "动画", "emote": "表情", "idle": "台词",
               "behavior": "行为", "feature": "功能", "ui": "皮肤"}
 
 def safe_zip_members(zf):
@@ -76,14 +77,21 @@ def export_mod(mod_dir, dest_zip):
 
 
 def import_mod_zip(zip_path, mods_dir):
-    """导入一个模组 zip 到 mods/。返回 (新id, 新目录)。任何问题抛 ValueError。"""
+    """导入一个模组 zip 到 mods/。返回 (新id, 新目录)。任何问题抛 ValueError。
+
+    角色卡包(.chara)与普通模组包同构(manifest.type=card/chara), 统一走
+    本入口; id 规范化: 字符集替换后补 ``card.`` 前缀, 保证注册表归类。
+    """
     with zipfile.ZipFile(zip_path) as zf:
         top, rels = safe_zip_members(zf)
         manifest = read_manifest_from_zip(zf, top)
-        mod_id = str(manifest.get("id", "")).strip()
+        raw_id = str(manifest.get("id", "")).strip()
+        mod_id = raw_id
+        mtype = str(manifest.get("type", "")).strip().lower()
+        if mtype in ("card", "chara"):
+            mod_id = _normalize_chara_id(mod_id)
         if not mod_id or not re.fullmatch(r"[A-Za-z0-9._\-]+", mod_id):
             raise ValueError("manifest 里的 id 非法: %r" % manifest.get("id"))
-        mtype = str(manifest.get("type", "")).strip().lower()
         if mtype not in TYPE_NAMES:
             raise ValueError("未知模组类型: %r" % manifest.get("type"))
         # 装到 mods/<id>, 目录冲突自动改名; 若改名了还要回写 manifest 里的 id
@@ -102,8 +110,11 @@ def import_mod_zip(zip_path, mods_dir):
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 with zf.open(n) as src, open(target, "wb") as out:
                     shutil.copyfileobj(src, out)
-            if new_id != mod_id:   # 冲突改名 → 回写 manifest, 保证 id 与目录一致
+            if new_id != raw_id or mtype == "chara":
+                # id 归一(补 card. 前缀/冲突改名)或 chara->card 类型归一都需要回写
                 manifest["id"] = new_id
+                if mtype == "chara":
+                    manifest["type"] = "card"
                 _save_manifest(dest, manifest)
         except ValueError:
             shutil.rmtree(dest, ignore_errors=True)
@@ -112,6 +123,18 @@ def import_mod_zip(zip_path, mods_dir):
             shutil.rmtree(dest, ignore_errors=True)
             raise ValueError("解压失败: %s" % e)
     return new_id, dest
+
+
+def _normalize_chara_id(mod_id):
+    """角色卡 id 规范化: 字符集替换 + 补 card. 前缀(纯短名 -> card.短名)。"""
+    base = re.sub(r"[^A-Za-z0-9._\-]+", "_", mod_id).strip("._-")
+    if not base:
+        return ""
+    if base.startswith("card."):
+        return base
+    if "." in base and not base.startswith("card."):
+        return "card." + base     # 其他前缀(如 ying.chara)统一挂到 card. 命名空间
+    return "card." + base
 
 
 def _save_manifest(dest, manifest):

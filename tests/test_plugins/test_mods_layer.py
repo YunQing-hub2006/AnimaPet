@@ -211,3 +211,69 @@ def test_packer_export_skips_junk(tmp_path):
         names = zf.namelist()
     assert not any("__pycache__" in n or n.endswith(".pyc") for n in names)
     assert any(n.endswith("keep.py") for n in names)
+
+
+# ---------- Phase 3: card 子文件逐文件降级 ----------
+
+def test_card_bad_subfiles_degrades_isolated(mods_tree):
+    (mods_tree / "card.ying" / "emotes.json").write_text(json.dumps({
+        "emotes": {
+            "good": {"name": "好", "lines": ["ok"]},
+            "bad": [1, 2, 3],
+        }
+    }, ensure_ascii=False), encoding="utf-8")
+    (mods_tree / "card.ying" / "idle.json").write_text(json.dumps({
+        "interval_min": "abc", "interval_max": None,
+        "lines": {"default": ["幸存台词"]},
+    }, ensure_ascii=False), encoding="utf-8")
+    (mods_tree / "card.ying" / "behaviors.json").write_text(json.dumps({
+        "rules": [
+            {"on": "", "then": []},
+            {"on": "pet.petted", "then": [{"say": "好规则"}]},
+        ]
+    }, ensure_ascii=False), encoding="utf-8")
+
+    mods, errors = loader.scan_mods()
+    assert errors == []
+    emotes = [m for m in mods if isinstance(m, loader.EmoteDef)]
+    assert len(emotes) == 1 and emotes[0].id == "good"          # 坏项丢弃, 好项保留
+    idles = [m for m in mods if isinstance(m, loader.IdlePack)]
+    assert idles and idles[0].interval_min == 180 and idles[0].interval_max == 420
+    behs = [m for m in mods if isinstance(m, loader.BehaviorMod)]
+    assert behs and len(behs[0].rules) == 1
+    assert behs[0].rules[0]["on"] == "pet.petted"
+    # registry.errors 为空(逐文件降级 = 不整卡报错)
+    from anima.mods.registry import Registry
+    reg = Registry()
+    reg.apply(mods)
+    assert reg.errors == []
+
+
+# ---------- Phase 3: .chara 类型/id 归一 ----------
+
+def test_normalize_chara_id():
+    assert packer._normalize_chara_id("mio") == "card.mio"
+    assert packer._normalize_chara_id("card.mio") == "card.mio"
+    assert packer._normalize_chara_id("ying.chara") == "card.ying.chara"
+    assert packer._normalize_chara_id("!!bad!!") == "card.bad"
+
+
+def test_packer_import_chara_normalizes_type_and_id(mods_tree, tmp_path):
+    zip_path = tmp_path / "mio.chara.zip"
+    _make_zip(zip_path, {
+        "mio/manifest.json": json.dumps({
+            "id": "ying.mio", "type": "chara", "version": "1.0.0", "name": "米奥",
+        }).encode(),
+        "mio/emotes.json": json.dumps({"emotes": {"default": {"name": "平时"}}}).encode(),
+    })
+    new_id, dest = packer.import_mod_zip(str(zip_path), str(mods_tree))
+    assert new_id == "card.ying.mio"
+    assert os.path.basename(dest) == "card.ying.mio"
+    mf = json.loads(open(os.path.join(dest, "manifest.json"), encoding="utf-8").read())
+    assert mf["type"] == "card"            # chara -> card 归一
+    assert mf["id"] == "card.ying.mio"     # 前缀归一
+    # 重扫后注册表按 card 归类
+    mods, errors = loader.scan_mods()
+    assert errors == []
+    assert any(isinstance(m, loader.CharacterMod) and m.id == "card.ying.mio" for m in mods)
+
