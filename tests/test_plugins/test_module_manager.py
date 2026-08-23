@@ -326,3 +326,24 @@ async def test_mods_dialog_delete_cancelled(mm_env, qapp, monkeypatch):
     assert any(m.id == "feature.demo" for m in mm.registry.all_mods)
     assert (mods_dir / "feature.demo").exists()
     await app.stop()
+
+
+async def test_mods_dialog_new_feature_entry(mm_env, qapp, monkeypatch):
+    """「新建…→ 新建功能模组…」: 生成模板、自动启用并进入总管理器列表。"""
+    app, _, _, _, _, mods_dir = mm_env
+    mm = await start(mm_env)
+    from anima.window.dialogs.modmanager import ModsDialog, NewFeatureModDialog
+    monkeypatch.setattr(
+        __import__("anima.window.dialogs.modmanager", fromlist=["QMessageBox"]).QMessageBox,
+        "warning", staticmethod(lambda *a, **k: None))
+    dlg = ModsDialog(mm)
+    assert "新建功能模组…" in [a.text() for a in dlg.menu_new.actions()]
+    nd = NewFeatureModDialog(mm)
+    nd.ed_id.setText("my_feature")
+    nd.ed_name.setText("我的功能")
+    nd._save()
+    await asyncio.sleep(0.05)
+    assert nd.created_id == "feature.my_feature"
+    assert (mods_dir / "feature.my_feature" / "manifest.json").exists()
+    assert mm.instances.get("feature.my_feature") is not None
+    await app.stop()

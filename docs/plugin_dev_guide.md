@@ -103,6 +103,7 @@ class Feature:
 ```
 
 会在 mods/feature.greet/ 生成 manifest.json + plugin.py, 并在模组管理里重新扫描后生效。
+也可以在「模组管理 → 新建… → 新建功能模组…」里直接创建(生成同款 Hello World 模板)。
 
 ## 7. 常见坑
 

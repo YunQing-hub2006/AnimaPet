@@ -129,6 +129,9 @@ class ModsDialog(QDialog):
         self.act_new_rule = QAction("新建规则模板…", self)
         self.act_new_rule.triggered.connect(self._open_new_rule_dialog)
         self.menu_new.addAction(self.act_new_rule)
+        self.act_new_feature = QAction("新建功能模组…", self)
+        self.act_new_feature.triggered.connect(self._open_new_feature_dialog)
+        self.menu_new.addAction(self.act_new_feature)
         self.btn_new.setMenu(self.menu_new)
         row.addWidget(self.btn_new)
         self.btn_open = QPushButton("打开 mods 文件夹")
@@ -451,6 +454,77 @@ class ModsDialog(QDialog):
         dlg.exec()
         if dlg.created_id:
             self._rescan()
+
+    def _open_new_feature_dialog(self):
+        dlg = NewFeatureModDialog(self.mm, self)
+        dlg.exec()
+        if dlg.created_id:
+            self._rescan()
+
+
+class NewFeatureModDialog(QDialog):
+    """新建功能模组: 输入 id/名称, 经 mm.create_feature_mod 生成并热启用。"""
+
+    def __init__(self, mm, parent=None):
+        super().__init__(parent)
+        self.mm = mm
+        self.created_id = ""
+        self.setWindowTitle("新建功能模组")
+        self.resize(460, 220)
+        self.setStyleSheet(WHITE_STYLE)
+        v = QVBoxLayout(self)
+        form = QFormLayout()
+        self.ed_id = QLineEdit()
+        self.ed_id.setPlaceholderText("如 my_feature 或 feature.my_feature（小写字母/数字/_.-）")
+        self.ed_name = QLineEdit()
+        self.ed_name.setPlaceholderText("显示名，如 我的功能")
+        form.addRow("功能模组 id", self.ed_id)
+        form.addRow("名称", self.ed_name)
+        v.addLayout(form)
+        tip = QLabel("生成 Hello World 模板; 之后直接改 mods/feature.<id>/plugin.py 写自己的实现。")
+        tip.setStyleSheet("color: #777777;")
+        v.addWidget(tip)
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self._save)
+        btns.rejected.connect(self.reject)
+        v.addWidget(btns)
+
+    def _save(self):
+        base = self.ed_id.text().strip().lower()
+        if base.startswith("feature."):
+            base = base[len("feature."):]
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]*", base or ""):
+            QMessageBox.warning(self, "id 不合法", "只允许小写字母/数字/_.-，且不能以符号开头。")
+            return
+        mid = "feature." + base
+        taken = {m.id for m in self.mm.registry.all_mods}
+        if mid in taken:
+            QMessageBox.warning(self, "id 冲突", "模组已存在: " + mid)
+            return
+        name = self.ed_name.text().strip() or base
+        try:
+            fut = self.mm.fire(self.mm.create_feature_mod(mid, name))
+            self._wait_fire(fut, 10)
+        except Exception as e:
+            QMessageBox.warning(self, "创建失败", str(e))
+            return
+        self.created_id = mid
+        self.accept()
+
+    @staticmethod
+    def _wait_fire(fut, timeout=10):
+        if fut is None:
+            return
+        if isinstance(fut, asyncio.Task):
+            try:
+                fut.result()
+            except asyncio.InvalidStateError:
+                pass
+            except Exception:
+                raise
+        else:
+            fut.result(timeout)
 
 
 class NewRuleTemplateDialog(QDialog):
