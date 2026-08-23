@@ -56,7 +56,9 @@ run.bat                             # pythonw 无控制台启动
   服务经 `app.registry.use("服务名")` 获取;
 - 第三方功能模组: 见 `docs/plugin_dev_guide.md`; 脚手架:
   `.venv\Scripts\python tools\new_plugin.py greet 问候`;
-- 角色卡格式: `docs/chara_format.md`; JSON Schema: `docs/schema/chara.schema.json`;
+- .chara 角色卡开发: `docs/chara_dev_guide.md`; 格式规范: `docs/chara_format.md`;
+- 用户使用: `docs/user_guide.md`; 发布检查: `docs/RELEASE_CHECKLIST.md`;
+- JSON Schema: `docs/schema/chara.schema.json`;
 - 迁移工具: `.venv\Scripts\python tools\migrate_yingpet.py migrate --dry-run`。
 
 ## 进度
