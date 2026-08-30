@@ -223,6 +223,64 @@ async def test_behavior_custom_event_and_json_editor(charcard_env, qapp, monkeyp
     await app.stop()
 
 
+async def test_behavior_editor_roundtrip_preserves_fields(charcard_env, qapp):
+    """行为编辑器往返保真: after_ms / if / on 列表 / 高级动作一个都不许丢。
+
+    这条是补漏。旧实现"更新动作"会整体重建 dict, 于是现有 6 条规则里 3 条带
+    after_ms 的, 用户改个表情延时就没了; on 写成列表会被 str() 成字面量
+    "['a','b']"(事件名不存在, 规则从此静默不触发); 条件键只认 when, 用 if 的
+    规则条件直接消失。旧测试只断言"能加能改", 没断言"改完还是原来那条", 所以
+    一直没暴露。
+    """
+    app, _, _, _, _, card = charcard_env
+    mm = await start(charcard_env)
+    from anima.window.dialogs.charcard.dialog import CardManagerDialog
+    dlg = CardManagerDialog(mm)
+    dlg._reload_chars("card.ying")
+
+    rule = {
+        "on": ["pet.petted", "pet.drag_started"],        # 多事件(rule_engine 认列表)
+        "if": "event.affinity > 5",                       # 条件键是 if 不是 when
+        "cooldown": 3,
+        "note": "手写备注",                                # 编辑器不认识的键
+        "then": [
+            {"say": "@idle.this.greet"},
+            {"emote": "angry", "after_ms": 200},          # 带延时的动作
+            {"state_set": {"key": "mood", "value": 1}},   # 画不出来的高级动作
+        ],
+    }
+    dlg._load_rule_form(rule)
+
+    # 表单: 多事件合成逗号文本; 条件取的是 if 那个键
+    assert dlg.ed_rule_on_custom.text() == "pet.petted, pet.drag_started"
+    assert dlg.ed_rule_when.text() == "event.affinity > 5"
+
+    # 改带 after_ms 那条动作的表情 —— 延时必须还在
+    dlg.lst_actions.setCurrentRow(1)
+    assert dlg.cmb_action_emote.currentData() == "angry"   # 下拉准确反映原值
+    combo = dlg.cmb_action_emote
+    combo.setCurrentIndex((combo.currentIndex() + 1) % combo.count())
+    dlg._update_action_from_editor()
+    assert dlg._actions_data[1]["after_ms"] == 200         # ← 旧实现这里会丢
+    assert dlg._actions_data[1]["emote"] != "angry"        # 确实改到了
+
+    # 高级动作: 选中后切到"原样保留", 更新应被拒绝而不是覆盖成不相干的值
+    dlg.lst_actions.setCurrentRow(2)
+    assert dlg.cmb_action_kind.currentData() == dlg._KIND_RAW
+    dlg._update_action_from_editor()
+    assert dlg._actions_data[2] == {"state_set": {"key": "mood", "value": 1}}
+
+    # 整体往返
+    out = dlg._rule_from_form()
+    assert out["on"] == ["pet.petted", "pet.drag_started"]  # 列表, 不是 "['a','b']"
+    assert out["if"] == "event.affinity > 5"                # 还是 if, 没被改成 when
+    assert "when" not in out
+    assert out["cooldown"] == 3
+    assert out["note"] == "手写备注"                         # 未知键原样带回
+    assert len(out["then"]) == 3
+    await app.stop()
+
+
 async def test_wizard_creates_hotloads_and_deletes(charcard_env):
     app, _, _, _, mods_dir, card = charcard_env
     mm = await start(charcard_env)

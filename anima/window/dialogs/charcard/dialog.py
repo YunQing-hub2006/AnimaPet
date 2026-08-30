@@ -45,6 +45,15 @@ class CardManagerDialog(QDialog):
     )
     _CUSTOM_EVENT = "__custom__"
 
+    #: 动作类型下拉里"原样保留"那一页的 data。
+    _KIND_RAW = "__raw__"
+    #: 编辑器能直接编辑的动作键。其余键(如 after_ms)编辑时原样带过去 ——
+    #: 现有规则里 {"emote":"angry","after_ms":200} 很常见, 改个表情不该把延时弄丢。
+    _ACTION_KEYS = ("say", "emote", "anim")
+    #: 规则里由编辑器无条件接管的键; 条件键 when/if 单独处理, 其余未知键原样保留。
+    _RULE_KEYS = ("on", "cooldown", "then")
+    _COND_KEYS = ("when", "if")
+
     def __init__(self, mm, parent=None, assets=None, wizard_mod=None):
         super().__init__(parent)
         self.mm = mm
@@ -55,6 +64,8 @@ class CardManagerDialog(QDialog):
         self.current_id = ""
         self._rules_data = []           # 当前选中行为模组的规则副本
         self._loading = False
+        self._rule_extra = {}           # 当前规则里编辑器不认识的键, 原样写回
+        self._rule_cond_key = "when"    # 当前规则用的条件键(when 还是 if)
 
         self.setWindowTitle("角色卡管理器")
         self.resize(980, 660)
@@ -225,6 +236,10 @@ class CardManagerDialog(QDialog):
         self.cmb_action_kind.addItem("说话", "say")
         self.cmb_action_kind.addItem("做表情", "emote")
         self.cmb_action_kind.addItem("播动画", "anim")
+        # 第四页给 state_set/emit/state_inc 这类编辑器画不出来的动作:
+        # 之前未知动作三个分支都不进, 下拉停在上一次的选项上, 一点"更新选中"
+        # 就把原动作覆盖成那个不相干的值了。
+        self.cmb_action_kind.addItem("高级动作(原样保留)", self._KIND_RAW)
         self.cmb_action_kind.currentIndexChanged.connect(self._on_action_kind_changed)
         editor.addWidget(self.cmb_action_kind)
         self.stack_action_value = QStackedWidget()
@@ -236,6 +251,10 @@ class CardManagerDialog(QDialog):
         self.stack_action_value.addWidget(self.cmb_action_emote)
         self.cmb_action_anim = QComboBox()
         self.stack_action_value.addWidget(self.cmb_action_anim)
+        self.lbl_action_raw = QLabel()
+        self.lbl_action_raw.setWordWrap(True)
+        self.lbl_action_raw.setToolTip("这类动作可视化编辑器画不出来, 已原样保留; 要改请用「编辑选中规则 JSON…」。")
+        self.stack_action_value.addWidget(self.lbl_action_raw)
         editor.addWidget(self.stack_action_value, 1)
         self.btn_action_add = QPushButton("＋ 添加")
         self.btn_action_add.clicked.connect(self._add_action_from_editor)
@@ -656,10 +675,30 @@ class CardManagerDialog(QDialog):
         if 0 <= row < len(self._rules_data):
             self._load_rule_form(self._rules_data[row])
 
+    @staticmethod
+    def _events_to_text(on):
+        """规则的 on(字符串或列表) → 事件输入框文本。
+
+        rule_engine 两者都认(列表=多事件任一触发); 旧实现直接 str() 一个列表,
+        会把 ["a","b"] 变成字面量 "['a', 'b']" 写回 JSON —— 事件名不存在,
+        规则从此静默不触发。这里用逗号分隔表示, 保存时再拆回列表。
+        """
+        if isinstance(on, (list, tuple)):
+            return ", ".join(str(x) for x in on)
+        return str(on or "")
+
+    @staticmethod
+    def _text_to_events(text):
+        """事件输入框文本 → on 的值(单个=字符串, 多个=列表)。"""
+        parts = [p.strip() for p in str(text or "").split(",") if p.strip()]
+        if not parts:
+            return "pet.petted"
+        return parts if len(parts) > 1 else parts[0]
+
     def _load_rule_form(self, rule):
         """把规则填进表单(rule=None 时清空, 供"添加新规则"起步)。"""
         r = rule or {}
-        ev = str(r.get("on", "") or "")
+        ev = self._events_to_text(r.get("on", ""))
         idx = self.cmb_rule_on.findData(ev)
         using_custom = idx < 0 and bool(ev)   # 空事件(新规则)默认选第一项
         if using_custom:
@@ -670,7 +709,23 @@ class CardManagerDialog(QDialog):
             self.cmb_rule_on.setCurrentIndex(idx if rule is not None else 0)
             self.ed_rule_on_custom.hide()
             self.ed_rule_on_custom.clear()
-        self.ed_rule_when.setText(str(r.get("when", "") or ""))
+
+        # 条件键 when / if 二选一: rule_engine 两个都认, 编辑器合成一个框,
+        # 但要记住原规则用的是哪个, 保存时写回同一个键, 别无谓地改动文件。
+        self._rule_cond_key = "when"
+        cond = ""
+        for k in self._COND_KEYS:
+            if str(r.get(k, "") or "") != "":
+                self._rule_cond_key, cond = k, str(r[k])
+                break
+        self.ed_rule_when.setText(cond)
+        # 编辑器不认识的键(以及没用上的那个条件键)原样带回, 防止保存时丢字段。
+        self._rule_extra = {k: v for k, v in r.items()
+                            if k not in self._RULE_KEYS and k not in self._COND_KEYS}
+        other = "if" if self._rule_cond_key == "when" else "when"
+        if str(r.get(other, "") or "") != "":
+            self._rule_extra[other] = r[other]
+
         self.ed_rule_cooldown.setText(str(r.get("cooldown", "")) if rule is not None else "")
         self._actions_data = list(r.get("then") or []) if rule is not None else []
         self._refresh_actions(select=-1)
@@ -685,10 +740,11 @@ class CardManagerDialog(QDialog):
 
     def _rule_from_form(self):
         """表单 + 动作列表 → 规则 dict(动作列表为空视为没配完, 拒绝)。"""
-        rule = {"on": self._rule_on_value() or "pet.petted"}
+        rule = {"on": self._text_to_events(self._rule_on_value())}
+        rule.update(getattr(self, "_rule_extra", {}))   # 编辑器不认识的键原样带回
         when = self.ed_rule_when.text().strip()
         if when:
-            rule["when"] = when
+            rule[self._rule_cond_key] = when
         cd = self.ed_rule_cooldown.text().strip()
         if cd:
             try:
@@ -817,20 +873,61 @@ class CardManagerDialog(QDialog):
         if 0 <= select < self.lst_actions.count():
             self.lst_actions.setCurrentRow(select)
 
-    def _action_from_editor(self):
-        """编辑行 → 动作 dict。"""
+    def _current_action(self):
+        """动作列表里当前选中的 dict(没选返回空 dict)。"""
+        row = self.lst_actions.currentRow()
+        if 0 <= row < len(self._actions_data):
+            a = self._actions_data[row]
+            if isinstance(a, dict):
+                return a
+        return {}
+
+    @staticmethod
+    def _action_kind_of(a):
+        """动作 dict → 编辑器类型; 三种都不是就是高级动作(None)。"""
+        for k in ("say", "emote", "anim"):
+            if k in a:
+                return k
+        return None
+
+    def _action_from_editor(self, inherit=True):
+        """编辑行 → 动作 dict。
+
+        ``inherit=True``(更新选中)时只动"当前类型"那一个键, 其余键原样带过来。
+        旧实现每次都造一个新 dict, 于是 {"emote":"angry","after_ms":200} 这种
+        带延时的动作, 用户改个表情 after_ms 就没了(现有 6 条规则里 3 条中招),
+        而且没有任何提示。新增动作不继承 —— 新动作跟选中行没关系。
+        """
         kind = self.cmb_action_kind.currentData()
+        if kind == self._KIND_RAW:
+            return dict(self._current_action())     # 高级动作: 原样, 一个键都不动
+        old = self._current_action() if inherit else {}
+        out = dict(old)
+        old_kind = self._action_kind_of(old)
+        if old_kind != kind:
+            # 换类型: 清掉旧的类型键, 非类型键(after_ms 等)继续留着
+            for k in self._ACTION_KEYS:
+                out.pop(k, None)
+        # old_kind == kind 时直接覆盖, 键顺序不变 —— 保存出来的 JSON diff 才干净
         if kind == "say":
-            return {"say": self.cmb_action_say.currentText().strip()}
-        if kind == "emote":
-            return {"emote": str(self.cmb_action_emote.currentData()
-                                 or self.cmb_action_emote.currentText())}
-        return {"anim": str(self.cmb_action_anim.currentData()
-                            or self.cmb_action_anim.currentText())}
+            out["say"] = self.cmb_action_say.currentText().strip()
+        elif kind == "emote":
+            out["emote"] = str(self.cmb_action_emote.currentData()
+                               or self.cmb_action_emote.currentText())
+        else:
+            out["anim"] = str(self.cmb_action_anim.currentData()
+                              or self.cmb_action_anim.currentText())
+        return out
+
+    def _action_is_empty(self, a):
+        """判断编辑出来的动作是否为空(高级动作另算, 它本来就没得填)。"""
+        if self.cmb_action_kind.currentData() == self._KIND_RAW:
+            return False
+        return not str(next(iter(a.values()), "") or "").strip()
 
     def _add_action_from_editor(self):
-        a = self._action_from_editor()
-        if not next(iter(a.values()), ""):
+        a = self._action_from_editor(inherit=False)
+        if self._action_is_empty(a):
             QMessageBox.information(self, "动作是空的", "先选好说什么/做什么表情/播哪个动画。")
             return
         self._actions_data.append(a)
@@ -841,8 +938,14 @@ class CardManagerDialog(QDialog):
         if row < 0 or row >= len(self._actions_data):
             QMessageBox.information(self, "更新动作", "请先在动作列表里选中一条。")
             return
+        if self.cmb_action_kind.currentData() == self._KIND_RAW:
+            QMessageBox.information(
+                self, "这条动不了",
+                "这是可视化编辑器画不出来的高级动作, 已经原样保留。\n"
+                "要改它请用「编辑选中规则 JSON…(高级)」。")
+            return
         a = self._action_from_editor()
-        if not next(iter(a.values()), ""):
+        if self._action_is_empty(a):
             QMessageBox.information(self, "动作是空的", "先选好说什么/做什么表情/播哪个动画。")
             return
         self._actions_data[row] = a
@@ -855,17 +958,38 @@ class CardManagerDialog(QDialog):
         if not isinstance(a, dict):
             return
         self._refresh_action_value_options()
-        if "say" in a:
-            self.cmb_action_kind.setCurrentIndex(0)
+        kind = self._action_kind_of(a)
+        if kind is None:
+            # state_set / state_inc / emit 这类编辑器画不出来的动作:
+            # 旧代码三个分支都不进, 下拉停在上一次的选项上 —— 用户以为看到的是
+            # 这条动作, 一点"更新选中"就把它覆盖成不相干的值。现在显式切到
+            # "原样保留"页并把原始 JSON 显示出来。
+            self.cmb_action_kind.setCurrentIndex(self.cmb_action_kind.count() - 1)
+            self.lbl_action_raw.setText(json.dumps(a, ensure_ascii=False))
+            return
+        self.cmb_action_kind.setCurrentIndex(
+            self._ACTION_KEYS.index(kind))
+        if kind == "say":
             self.cmb_action_say.setCurrentText(str(a["say"]))
-        elif "emote" in a:
-            self.cmb_action_kind.setCurrentIndex(1)
-            idx = self.cmb_action_emote.findData(str(a["emote"]))
-            self.cmb_action_emote.setCurrentIndex(max(0, idx))
-        elif "anim" in a:
-            self.cmb_action_kind.setCurrentIndex(2)
-            idx = self.cmb_action_anim.findData(str(a["anim"]))
-            self.cmb_action_anim.setCurrentIndex(max(0, idx))
+        elif kind == "emote":
+            self._select_or_add(self.cmb_action_emote, str(a["emote"]))
+        else:
+            self._select_or_add(self.cmb_action_anim, str(a["anim"]))
+
+    @staticmethod
+    def _select_or_add(combo, value):
+        """选中下拉里已有的项; 不在列表里就临时加一项再选中。
+
+        旧写法 ``setCurrentIndex(max(0, idx))`` 在找不到时静默选中第 0 项,
+        用户看到的表情/动画名跟实际存的不一致, 一按更新就写错了。
+        """
+        idx = combo.findData(value)
+        if idx < 0:
+            idx = combo.findText(value)
+        if idx < 0:
+            combo.addItem(value, value)
+            idx = combo.count() - 1
+        combo.setCurrentIndex(idx)
 
     def _delete_action(self):
         row = self.lst_actions.currentRow()
