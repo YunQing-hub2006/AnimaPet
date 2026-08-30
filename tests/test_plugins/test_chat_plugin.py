@@ -167,6 +167,38 @@ def test_history_store_crud_export_import(tmp_path, monkeypatch):
     assert len(other.entries) == len(store.entries)
 
 
+def test_history_import_merge_and_overwrite(tmp_path, monkeypatch):
+    """合并导入: 现有记录保留、重复内容去重、导入会话顺延编号; 覆盖导入清空重来。"""
+    monkeypatch.setattr(jsonio, "_BASE", str(tmp_path))
+    d = tmp_path / "data" / "characters" / "card.ying"
+    d.mkdir(parents=True)
+
+    store = HistoryStore(str(d), "card.ying")
+    store.append("user", "已有消息")
+    store.entries[0]["ts"] = "08-28 10:00"        # 固定时间戳, 去重断言才稳定
+    store.save()
+
+    incoming = HistoryStore(str(tmp_path / "incoming"), "card.ying")
+    incoming.conv_id = 1
+    incoming.append("user", "已有消息")            # 与 store 重复 → 合并时跳过
+    incoming.entries[0]["ts"] = "08-28 10:00"
+    incoming.new_conversation()
+    incoming.append("user", "外来消息")
+    incoming.entries[-1]["ts"] = "08-28 10:05"
+    backup = str(tmp_path / "backup.json")
+    incoming.export_json(backup)
+
+    n = store.import_json(backup, "merge")
+    assert n == 1                                 # 只并入了不重复的一条
+    assert [m["content"] for m in store.entries] == ["已有消息", "外来消息"]
+    assert store.entries[-1]["conv"] == 2         # 导入会话顺延到现有之后
+    assert store.conv_id == 2
+
+    n2 = store.import_json(backup, "overwrite")
+    assert n2 == 2 and [m["content"] for m in store.entries] == ["已有消息", "外来消息"]
+    assert store.conv_id == 2
+
+
 # ---------------------------------------------------------------------
 # 功能模组集成(受总管理器托管)
 # ---------------------------------------------------------------------

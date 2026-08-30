@@ -17,6 +17,7 @@
 卡内素材注册为命名空间 id: <卡id>:<短名>, 归属隔离由 character 字段保证。
 """
 import os
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from anima.utils import jsonio, log, paths
@@ -27,6 +28,66 @@ VALID_TYPES = ("card", "character", "anim", "emote", "idle", "behavior", "featur
 
 #: card 展开时逐文件校验的最大条目数(表情/规则/台词段), 防坏数据拖垮扫描。
 _VALIDATE_LIMIT = 1000
+
+
+# ----------------------------------------------------------------------
+# 帧缓存: 全局 LRU + 字节预算
+# ----------------------------------------------------------------------
+# 原先每个 AnimMod 自带 _cache 且永不释放: 表情动画(angry/disdain 共 119 帧)
+# 播完就再没人用, 却和 idle/talk 一起常驻。改为所有动画共用一个预算, 超限
+# 时淘汰最久未用的一组。
+#
+# 正在播放的帧组由 Animator 持有列表引用, 即便从本缓存淘汰也不会立刻释放
+# —— 这是有意的: 淘汰只影响"下次是否要重新解码", 不会打断当前动画。
+# 因此 _frame_bytes 是估算值, 预算表现为软上限。
+# 64MB 的取值: 默认尺寸 240px 下四组动画约 53MB, 全部常驻 -> 切动画零重解码;
+# 放大到 320px 时约 94MB 会超限, 于是淘汰不常看的情绪动画, 把内存封住。
+_FRAME_BUDGET = 64 * 1024 * 1024    # 解码后像素(ARGB 每像素 4 字节)
+_frame_lru = OrderedDict()          # (anim_dir, size) -> list[QPixmap]
+_frame_bytes = 0
+
+
+def clear_frame_cache():
+    """模组重扫后调用: 盘上素材可能已变, 缓存整体作废。
+
+    正在播放的帧不受影响(Animator 仍持有引用), 下次取帧时重新解码。
+    """
+    global _frame_bytes
+    _frame_lru.clear()
+    _frame_bytes = 0
+    _log.info("frame cache cleared")
+
+
+def cache_stats():
+    """当前缓存占用, 供诊断/测试使用。返回 (组数, 估算字节)。"""
+    return len(_frame_lru), _frame_bytes
+
+
+def _scaled_size(reader, size):
+    """按 KeepAspectRatio 算出目标尺寸(等比装进 size x size 的方框)。"""
+    from PyQt6.QtCore import QSize
+    orig = reader.size()
+    if not orig.isValid() or orig.width() <= 0 or orig.height() <= 0:
+        return QSize(size, size)
+    ratio = min(size / orig.width(), size / orig.height())
+    return QSize(max(1, round(orig.width() * ratio)),
+                 max(1, round(orig.height() * ratio)))
+
+
+def load_scaled_pixmap(path, size):
+    """按显示尺寸解码图片, 不经过全分辨率位图。
+
+    关键: ``setScaledSize`` 让解码器直接产出目标尺寸。原写法
+    ``QPixmap(path).scaled(...)`` 会先把 2048x2048 的表情图完整解成
+    16MB 的位图再缩小 —— 桌宠只用得到 320x320 的那点像素。
+    """
+    from PyQt6.QtGui import QImageReader, QPixmap
+    reader = QImageReader(path)
+    reader.setScaledSize(_scaled_size(reader, size))
+    img = reader.read()
+    if img.isNull():
+        return QPixmap()
+    return QPixmap.fromImage(img)
 
 
 # ----------------------------------------------------------------------
@@ -42,36 +103,50 @@ class AnimMod:
     fps: int = 12
     description: str = ""
     version: str = ""
-    _cache: dict = field(default_factory=dict, repr=False)
 
     def frames(self, size):
-        """懒加载: 第一次用到时才读盘+缩放, 之后命中缓存(轻量化的关键)。"""
-        cached = self._cache.get(size)
+        """按显示尺寸取帧序列, 命中全局缓存则直接复用。
+
+        两级省内存:
+        1. 解码即缩放(setScaledSize) —— 不产生全分辨率位图, 消除加载尖峰;
+        2. 缓存进全局 LRU —— 表情动画用完可被淘汰, 不无限堆积。
+        """
+        key = (self.dir, size)
+        cached = _frame_lru.get(key)
         if cached is not None:
+            _frame_lru.move_to_end(key)      # 命中即刷新为最近使用
             return cached
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QPixmap
+
+        frames = self._decode_frames(size)
+        global _frame_bytes
+        _frame_lru[key] = frames
+        _frame_bytes += len(frames) * size * size * 4
+        self._evict_if_needed()
+        return frames
+
+    def _decode_frames(self, size):
         folder = os.path.join(self.dir, "frames")
-        names = []
         try:
             names = sorted(n for n in os.listdir(folder) if n.lower().endswith(".png"))
         except OSError:
-            pass
+            names = []
         frames = []
         for n in names:
-            pm = QPixmap(os.path.join(folder, n))
-            if pm.isNull():
-                continue
-            frames.append(pm.scaled(
-                size, size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            ))
+            pm = load_scaled_pixmap(os.path.join(folder, n), size)
+            if not pm.isNull():
+                frames.append(pm)
         if not frames:
             frames = [self._fallback_disc(size)]  # 素材缺失也不崩
-        self._cache[size] = frames
         _log.info("anim %s: %d frames @%dpx", self.id, len(frames), size)
         return frames
+
+    @staticmethod
+    def _evict_if_needed():
+        """超预算就从最久未用的那组开始扔, 至少保留一组(正在用的不能扔)。"""
+        global _frame_bytes
+        while _frame_bytes > _FRAME_BUDGET and len(_frame_lru) > 1:
+            (_, evict_size), evicted = _frame_lru.popitem(last=False)
+            _frame_bytes -= len(evicted) * evict_size * evict_size * 4
 
     @staticmethod
     def _fallback_disc(size):

@@ -9,19 +9,10 @@ from PyQt6.QtWidgets import (
 )
 
 from anima.utils import jsonio, log, paths
+from anima.window.dialogs.common import apply_dialog_style
 from . import wait_rescan
 
 _log = log.get("feature.charcard.wizard")
-
-WHITE_STYLE = (
-    "QDialog { background: #ffffff; color: #111111; }"
-    "QLabel { background: transparent; color: #111111; }"
-    "QLineEdit, QPlainTextEdit, QComboBox { background: #ffffff; color: #111111;"
-    " border: 1px solid #b0b0b0; border-radius: 3px; padding: 4px 6px; }"
-    "QPushButton { background: #f2f2f2; color: #111111; border: 1px solid #b0b0b0;"
-    " border-radius: 3px; padding: 4px 12px; }"
-    "QPushButton:hover { background: #e2e2e2; }"
-)
 
 
 class NewCardWizard(QDialog):
@@ -33,7 +24,7 @@ class NewCardWizard(QDialog):
         self._base = ""
         self.setWindowTitle("新建角色卡")
         self.resize(560, 460)
-        self.setStyleSheet(WHITE_STYLE)
+        apply_dialog_style(self)
 
         root = QVBoxLayout(self)
         self.stack = QStackedWidget()
@@ -72,7 +63,7 @@ class NewCardWizard(QDialog):
         v2.addLayout(form2)
         tip2 = QLabel("可不选：核心会自动回退到第一个可用动画。\n"
                       "之后可以在角色卡管理器里把 PNG 序列帧直接导入卡内。")
-        tip2.setStyleSheet("color: #777777;")
+        tip2.setStyleSheet("color: #a08cb0;")
         v2.addWidget(tip2)
         v2.addStretch(1)
         self.stack.addWidget(p2)

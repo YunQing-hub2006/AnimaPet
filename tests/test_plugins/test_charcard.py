@@ -154,16 +154,24 @@ async def test_writeback_routes_to_card_files(charcard_env, qapp):
         idle_raw = json.loads((card / "idle.json").read_text(encoding="utf-8"))
         assert "测试台词一" in (idle_raw.get("lines", {}).get("default") or []), idle_raw
 
-        # 2c) 行为 → behaviors.json (表单: on/when/cooldown/then-JSON)
-        dlg.ed_rule_on.setText("pet.petted")
+        # 2c) 行为 → behaviors.json (可视化表单: 事件下拉 + 动作搭建器)
+        dlg._load_rule_form(None)                     # 从零开始配一条新规则
+        idx = dlg.cmb_rule_on.findData("pet.petted")
+        dlg.cmb_rule_on.setCurrentIndex(idx)          # 被摸头
         dlg.ed_rule_when.setText("event.affinity >= 1")
         dlg.ed_rule_cooldown.setText("5")
-        dlg.ed_rule_then.setPlainText('[{"say": "@idle.this.default"}]')
+        dlg.cmb_action_kind.setCurrentIndex(0)        # 说话
+        dlg.cmb_action_say.setCurrentText("@idle.this.default")
+        dlg._add_action_from_editor()
         dlg._add_rule()
         dlg._save_beh()
         beh_raw = json.loads((card / "behaviors.json").read_text(encoding="utf-8"))
-        assert any(r.get("cooldown") == 5 and r.get("when") == "event.affinity >= 1"
-                   for r in beh_raw.get("rules", [])), beh_raw
+        rule = next((r for r in beh_raw.get("rules", [])
+                     if r.get("when") == "event.affinity >= 1"), None)
+        assert rule is not None and rule.get("cooldown") == 5, beh_raw
+        assert rule.get("then") == [{"say": "@idle.this.default"}], rule
+        # 规则列表用"人话"显示(事件中文名 + 动作数), 不再暴露 on=/when= 原始字段
+        assert "被摸头" in dlg.rules_list.item(0).text()
 
         # 2d) 表情 → emotes.json
         found = False
@@ -180,6 +188,38 @@ async def test_writeback_routes_to_card_files(charcard_env, qapp):
     finally:
         _restore(card, orig)
         mm.rescan()
+    await app.stop()
+
+
+async def test_behavior_custom_event_and_json_editor(charcard_env, qapp, monkeypatch):
+    """行为可视化编辑: 自定义事件名输入 + 高级 JSON 出口双向可用。"""
+    app, _, _, _, _, card = charcard_env
+    mm = await start(charcard_env)
+    from PyQt6.QtWidgets import QInputDialog
+    from anima.window.dialogs.charcard.dialog import CardManagerDialog
+    dlg = CardManagerDialog(mm)
+    dlg._reload_chars("card.ying")
+    dlg._load_rule_form(None)
+
+    # 自定义事件: 选"自己填" → 出现输入框, 值进入规则的 on
+    dlg.cmb_rule_on.setCurrentIndex(dlg.cmb_rule_on.findData("__custom__"))
+    dlg.ed_rule_on_custom.setText("feature.test.done")
+    dlg.cmb_action_kind.setCurrentIndex(2)            # 播动画
+    dlg._add_action_from_editor()                     # 动画下拉默认第一项(card.ying:idle)
+    dlg._add_rule()
+    rule = dlg._rules_data[-1]
+    assert rule["on"] == "feature.test.done"
+    assert rule["then"] == [{"anim": "card.ying:idle"}]
+
+    # 高级 JSON 出口: 预填选中规则 → 校验合法才写回
+    new_json = json.dumps({"on": "feature.test.done", "cooldown": 9,
+                           "then": [{"say": "好耶"}]}, ensure_ascii=False)
+    monkeypatch.setattr(QInputDialog, "getMultiLineText",
+                        staticmethod(lambda *a, **k: (new_json, True)))
+    dlg.rules_list.setCurrentRow(dlg.rules_list.count() - 1)
+    dlg._edit_rule_json()
+    assert dlg._rules_data[-1]["cooldown"] == 9
+    assert dlg._rules_data[-1]["then"] == [{"say": "好耶"}]
     await app.stop()
 
 

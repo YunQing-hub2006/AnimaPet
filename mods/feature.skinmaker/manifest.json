@@ -1,0 +1,8 @@
+{
+  "id": "feature.skinmaker",
+  "type": "feature",
+  "version": "1.0.0",
+  "name": "皮肤工坊",
+  "description": "用取色器调配色、实时预览, 保存即生成自己的皮肤并换上, 零代码",
+  "main": "plugin.py"
+}

@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""模组管理对话框 (自 YingPet-v4 feature.settings/dialogs.py 的 ModsDialog 搬运)。
+"""模组管理对话框 (自 YingPet-v4 feature.settings/dialogs.py 的 ModsDialog 平移)。
 
 差异: 数据源从 FeatureContext 改为 module_manager 服务 + config/mod 服务;
 开关保存走 config 服务; 导入/导出走 anima.mods.packer; 热重载走
 ``mm.rescan()``(注册表同步重建)+ ``mm.fire(mm.a_rescan())``(feature 对账)。
+
+等待内核调度(wait_fire/wait_rescan)与统一样式来自 dialogs.common。
 """
-import asyncio
 import os
 import re
-import shutil
 import time
 
 from PyQt6.QtCore import Qt
@@ -21,49 +21,13 @@ from PyQt6.QtWidgets import (
 
 from anima.mods import loader
 from anima.utils import jsonio, log, paths
+from anima.window.dialogs.common import (
+    apply_dialog_style, import_anim_folder, import_gif, wait_fire, wait_rescan,
+)
 
 _log = log.get("module_manager.dialogs")
 
-WHITE_STYLE = (
-    "QDialog { background: #ffffff; color: #111111; }"
-    "QLabel { background: transparent; color: #111111; }"
-    "QLineEdit, QPlainTextEdit, QComboBox { background: #ffffff; color: #111111;"
-    " border: 1px solid #b0b0b0; border-radius: 3px; padding: 4px 6px; }"
-    "QTreeWidget { background: #ffffff; color: #111111; border: 1px solid #c0c0c0; }"
-    "QTreeWidget::item { padding: 2px; }"
-    "QTreeWidget::item:selected { background: #d6e4ff; color: #000000; }"
-    "QCheckBox { background: transparent; color: #111111; }"
-    "QPushButton { background: #f2f2f2; color: #111111; border: 1px solid #b0b0b0;"
-    " border-radius: 3px; padding: 4px 12px; }"
-    "QPushButton:hover { background: #e2e2e2; }"
-    "QMenu { background: #ffffff; color: #111111; border: 1px solid #b0b0b0; }"
-    "QMenu::item:selected { background: #d6e4ff; }"
-    "QDialogButtonBox QPushButton { min-width: 72px; }"
-)
-
-
-def import_anim_folder(src):
-    """把装满 PNG 的文件夹导入为 anim.* 模组, 返回 (new_id, mod_dir)。"""
-    files = sorted(f for f in os.listdir(src) if f.lower().endswith(".png"))
-    if not files:
-        raise ValueError("所选文件夹里没有 PNG 文件。")
-    base = re.sub(r"[^\w一-鿿-]+", "_", os.path.basename(src)).strip("_") or "anim"
-    name = base
-    i = 1
-    while os.path.isdir(os.path.join(paths.MODS_DIR, "anim." + name)):
-        i += 1
-        name = "%s_%d" % (base, i)
-    mid = "anim." + name
-    d = os.path.join(paths.MODS_DIR, mid)
-    os.makedirs(os.path.join(d, "frames"), exist_ok=True)
-    for f in files:
-        shutil.copy2(os.path.join(src, f), os.path.join(d, "frames", f))
-    jsonio.save(os.path.join(d, "manifest.json"), {
-        "id": mid, "type": "anim", "version": "1.0.0",
-        "name": name, "fps": 12, "frames_dir": "frames",
-        "description": "导入的动画(公共素材库)",
-    })
-    return mid, d
+_ERR_PATH_ROLE = Qt.ItemDataRole.UserRole + 1   # 树条目附加数据: 错误条目的 mods 文件夹路径
 
 
 class ModsDialog(QDialog):
@@ -78,14 +42,13 @@ class ModsDialog(QDialog):
         self.mm = mm
         self.setWindowTitle("模组管理")
         self.resize(760, 620)
-        self.setStyleSheet(WHITE_STYLE)
+        apply_dialog_style(self)
         layout = QVBoxLayout(self)
 
         title = QLabel("模组管理")
         title.setStyleSheet("font-size: 15px; font-weight: bold;")
         layout.addWidget(title)
         self.lbl_summary = QLabel("")
-        self.lbl_summary.setStyleSheet("color: #333333;")
         layout.addWidget(self.lbl_summary)
 
         row_filter = QHBoxLayout()
@@ -117,16 +80,39 @@ class ModsDialog(QDialog):
         layout.addWidget(self.listw, 1)
 
         self.lbl_errors = QLabel("")
-        self.lbl_errors.setStyleSheet("color: #c00000;")
+        self.lbl_errors.setStyleSheet("color: #ff8080;")
         self.lbl_errors.setWordWrap(True)
         layout.addWidget(self.lbl_errors)
 
+        layout.addLayout(self._build_bottom_row())
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self._save)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self._changes = {}
+        self._rows = []          # [(mod_id, checkbox, tree_item)]
+        self._row_meta = {}      # mod_id -> mod 对象
+        self._group_nodes = {}   # type -> 顶级分组节点
+        self._error_items = []   # 加载失败条目(置顶)
+        self._build_list()
+
+    # ------------------------------------------------------------------
+    # 构建
+    # ------------------------------------------------------------------
+
+    def _build_bottom_row(self):
         row = QHBoxLayout()
         self.btn_new = QPushButton("新建…")
         self.menu_new = QMenu(self.btn_new)
-        self.act_import_anim = QAction("导入动画到素材库…", self)
+        self.act_import_anim = QAction("导入 PNG 序列帧到素材库…", self)
         self.act_import_anim.triggered.connect(self._import_anim)
         self.menu_new.addAction(self.act_import_anim)
+        self.act_import_gif = QAction("导入 GIF 动画到素材库…", self)
+        self.act_import_gif.triggered.connect(self._import_gif)
+        self.menu_new.addAction(self.act_import_gif)
         self.act_new_rule = QAction("新建规则模板…", self)
         self.act_new_rule.triggered.connect(self._open_new_rule_dialog)
         self.menu_new.addAction(self.act_new_rule)
@@ -154,24 +140,8 @@ class ModsDialog(QDialog):
         self.btn_refresh = QPushButton("重新扫描")
         self.btn_refresh.clicked.connect(self._rescan)
         row.addWidget(self.btn_refresh)
-        layout.addLayout(row)
+        return row
 
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        btns.accepted.connect(self._save)
-        btns.rejected.connect(self.reject)
-        layout.addWidget(btns)
-
-        self._changes = {}
-        self._rows = []          # [(mod_id, checkbox, tree_item)]
-        self._row_meta = {}      # mod_id -> mod 对象
-        self._group_nodes = {}   # type -> 顶级分组节点
-        self._error_items = []   # 加载失败条目(置顶)
-        self._build_list()
-
-    # ------------------------------------------------------------------
-    # 构建
-    # ------------------------------------------------------------------
     @staticmethod
     def _mod_type(m):
         """从模组对象类型判定 type, 不能靠 id 前缀。"""
@@ -197,22 +167,18 @@ class ModsDialog(QDialog):
         if errors:
             if flat:
                 for dirname, msg in errors:
-                    it = QTreeWidgetItem(["✗ 加载失败: %s — %s" % (dirname, msg)])
-                    it.setForeground(0, QColor("#c00000"))
-                    it.setData(0, Qt.ItemDataRole.UserRole, "")
-                    self.listw.addTopLevelItem(it)
-                    self._error_items.append(it)
-                    it.setData(0, Qt.ItemDataRole.UserRole + 1, os.path.join(paths.MODS_DIR, dirname))
+                    self._add_error_item("✗ 加载失败: %s — %s" % (dirname, msg),
+                                         os.path.join(paths.MODS_DIR, dirname))
             else:
                 err_node = QTreeWidgetItem(["✗ 加载失败 (%d)" % len(errors)])
-                err_node.setForeground(0, QColor("#c00000"))
+                err_node.setForeground(0, QColor("#ff8080"))
                 self.listw.addTopLevelItem(err_node)
                 for dirname, msg in errors:
                     it = QTreeWidgetItem(["%s — %s" % (dirname, msg)])
-                    it.setForeground(0, QColor("#c00000"))
+                    it.setForeground(0, QColor("#ff8080"))
                     err_node.addChild(it)
                     self._error_items.append(it)
-                    it.setData(0, Qt.ItemDataRole.UserRole + 1, os.path.join(paths.MODS_DIR, dirname))
+                    it.setData(0, _ERR_PATH_ROLE, os.path.join(paths.MODS_DIR, dirname))
                 err_node.setExpanded(True)
 
         if not flat:
@@ -223,41 +189,7 @@ class ModsDialog(QDialog):
                 self._group_nodes[t] = node
 
         for m in self.mm.registry.all_mods:
-            t = self._mod_type(m)
-            tname = self._TYPE_NAMES.get(t, t)
-            item = QTreeWidgetItem()
-            item.setData(0, Qt.ItemDataRole.UserRole, m.id)
-            row_w = QWidget()
-            row_w.setStyleSheet("background: transparent;")
-            v = QVBoxLayout(row_w)
-            v.setContentsMargins(6, 4, 6, 4)
-            v.setSpacing(1)
-            cb = QCheckBox("[%s] %s" % (tname, getattr(m, "name", "") or m.id))
-            cb.setStyleSheet("font-weight: bold;")
-            cb.setChecked(bool(enabled.get(m.id, True)))
-            cb.toggled.connect(lambda on, mid=m.id: self._mark(mid, on))
-            v.addWidget(cb)
-            ver = str(getattr(m, "version", "") or "")
-            desc = str(getattr(m, "description", "") or "")
-            sub_text = m.id
-            if ver:
-                sub_text += "  ·  v" + ver
-            if desc:
-                sub_text += "  ·  " + desc
-            sub = QLabel(sub_text)
-            sub.setStyleSheet("color: #777777; font-size: 11px;")
-            sub.setWordWrap(True)
-            v.addWidget(sub)
-            item.setSizeHint(0, row_w.sizeHint())
-            if flat:
-                self.listw.addTopLevelItem(item)
-            elif t in self._group_nodes:
-                self._group_nodes[t].addChild(item)
-            else:
-                self.listw.addTopLevelItem(item)
-            self.listw.setItemWidget(item, 0, row_w)
-            self._rows.append((m.id, cb, item))
-            self._row_meta[m.id] = m
+            self._add_mod_row(m, enabled, flat)
 
         if not flat:
             for node in self._group_nodes.values():
@@ -265,9 +197,56 @@ class ModsDialog(QDialog):
         self._apply_filter()
         self._update_summary()
 
+    def _add_error_item(self, text, folder):
+        it = QTreeWidgetItem([text])
+        it.setForeground(0, QColor("#ff8080"))
+        it.setData(0, Qt.ItemDataRole.UserRole, "")
+        self.listw.addTopLevelItem(it)
+        self._error_items.append(it)
+        it.setData(0, _ERR_PATH_ROLE, folder)
+        return it
+
+    def _add_mod_row(self, m, enabled, flat):
+        t = self._mod_type(m)
+        tname = self._TYPE_NAMES.get(t, t)
+        item = QTreeWidgetItem()
+        item.setData(0, Qt.ItemDataRole.UserRole, m.id)
+        row_w = QWidget()
+        row_w.setStyleSheet("background: transparent;")
+        v = QVBoxLayout(row_w)
+        v.setContentsMargins(6, 4, 6, 4)
+        v.setSpacing(1)
+        cb = QCheckBox("[%s] %s" % (tname, getattr(m, "name", "") or m.id))
+        cb.setStyleSheet("font-weight: bold;")
+        cb.setChecked(bool(enabled.get(m.id, True)))
+        cb.toggled.connect(lambda on, mid=m.id: self._mark(mid, on))
+        v.addWidget(cb)
+        ver = str(getattr(m, "version", "") or "")
+        desc = str(getattr(m, "description", "") or "")
+        sub_text = m.id
+        if ver:
+            sub_text += "  ·  v" + ver
+        if desc:
+            sub_text += "  ·  " + desc
+        sub = QLabel(sub_text)
+        sub.setStyleSheet("color: #a08cb0; font-size: 11px;")
+        sub.setWordWrap(True)
+        v.addWidget(sub)
+        item.setSizeHint(0, row_w.sizeHint())
+        if flat:
+            self.listw.addTopLevelItem(item)
+        elif t in self._group_nodes:
+            self._group_nodes[t].addChild(item)
+        else:
+            self.listw.addTopLevelItem(item)
+        self.listw.setItemWidget(item, 0, row_w)
+        self._rows.append((m.id, cb, item))
+        self._row_meta[m.id] = m
+
     # ------------------------------------------------------------------
     # 状态 / 过滤
     # ------------------------------------------------------------------
+
     def _update_summary(self):
         cfg = self.mm.config
         char = self.mm.registry.character(str(cfg.get("mods.character", "")))
@@ -321,37 +300,9 @@ class ModsDialog(QDialog):
     # ------------------------------------------------------------------
     # 保存 / 重扫
     # ------------------------------------------------------------------
-    def _wait_fire(self, fut, timeout=10):
-        """等待 fire() 的调度结果。
-
-        fire 有两种返回: 跨线程(生产, Qt 线程)→ concurrent Future(带超时);
-        单线程测试 → asyncio.Task(``result()`` 不接受超时参数, 未完成抛
-        InvalidStateError, 由外层事件循环推动, 调用方 await 后再断言)。
-        """
-        if fut is None:   # 内核线程已同步执行
-            return
-        if isinstance(fut, asyncio.Task):
-            try:
-                fut.result()
-            except asyncio.InvalidStateError:
-                pass
-            except Exception as e:
-                raise e
-        else:
-            fut.result(timeout)
-
-    def _wait_rescan(self, fut):
-        """rescan 在 Qt 线程被调度到内核循环执行; 阻塞等它完成(上限 10s)再重建列表。
-
-        kernel 侧的重扫不依赖 Qt 泵事件(run_on_ui 只入队不等待), 故此处不会死锁。
-        """
-        try:
-            self._wait_fire(fut, timeout=10)
-        except Exception as e:
-            _log.warning("rescan: %s", e)
 
     def _rescan(self):
-        self._wait_rescan(self.mm.rescan())
+        wait_rescan(self.mm.rescan())
         self._changes = {}
         self._build_list()
 
@@ -362,19 +313,20 @@ class ModsDialog(QDialog):
             enabled.update(self._changes)
             cfg.set("mods.enabled", enabled)
             cfg.save()
-        self._wait_rescan(self.mm.rescan())
+        wait_rescan(self.mm.rescan())
         QMessageBox.information(self, "完成", "模组已热重载。")
         self.accept()
 
     # ------------------------------------------------------------------
     # 行内右键操作: 打开文件夹 / 导出模组包 / 设为当前皮肤
     # ------------------------------------------------------------------
+
     def _on_item_menu(self, pos):
         item = self.listw.itemAt(pos)
         if item is None:
             return
         menu = QMenu(self)
-        err_path = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        err_path = item.data(0, _ERR_PATH_ROLE)
         if err_path:
             act_open = QAction("打开所在文件夹", self)
             act_open.triggered.connect(lambda _=False, p=err_path: self.mm.open_path(p))
@@ -414,7 +366,7 @@ class ModsDialog(QDialog):
             return
         fut = self.mm.fire(self.mm.delete_mod(mid))
         try:
-            self._wait_fire(fut, timeout=10)
+            wait_fire(fut, timeout=10)
         except Exception as e:
             _log.warning("delete %s: %s", mid, e)
             QMessageBox.warning(self, "删除失败", str(e))
@@ -462,8 +414,9 @@ class ModsDialog(QDialog):
         self._rescan()
 
     # ------------------------------------------------------------------
-    # 新建入口: 导入动画 / 规则模板
+    # 新建入口: 导入动画 / 规则模板 / 功能模组
     # ------------------------------------------------------------------
+
     def _import_anim(self):
         src = QFileDialog.getExistingDirectory(self, "选择包含序列帧 PNG 的文件夹")
         if not src:
@@ -472,6 +425,19 @@ class ModsDialog(QDialog):
             new_id, _dir = import_anim_folder(src)
             self._rescan()
             QMessageBox.information(self, "导入成功", "已导入为动画模组: " + new_id)
+        except Exception as e:
+            QMessageBox.warning(self, "导入失败", str(e))
+
+    def _import_gif(self):
+        src, _ = QFileDialog.getOpenFileName(self, "选择 GIF 文件", "",
+                                             "GIF 动画 (*.gif);;所有文件 (*.*)")
+        if not src:
+            return
+        try:
+            new_id, _dir = import_gif(src)
+            self._rescan()
+            QMessageBox.information(self, "导入成功",
+                                    "GIF 已拆帧导入为动画模组: %s" % new_id)
         except Exception as e:
             QMessageBox.warning(self, "导入失败", str(e))
 
@@ -488,27 +454,31 @@ class ModsDialog(QDialog):
             self._rescan()
 
 
-class NewFeatureModDialog(QDialog):
-    """新建功能模组: 输入 id/名称, 经 mm.create_feature_mod 生成并热启用。"""
+class _NewModDialogBase(QDialog):
+    """新建功能模组/规则模板对话框的公共骨架: id+名称 表单与校验。"""
+
+    PREFIX = ""          # 模组 id 前缀, 如 "feature." / "behavior."
+    WINDOW_TITLE = ""
+    TIP = ""
 
     def __init__(self, mm, parent=None):
         super().__init__(parent)
         self.mm = mm
         self.created_id = ""
-        self.setWindowTitle("新建功能模组")
+        self.setWindowTitle(self.WINDOW_TITLE)
         self.resize(460, 220)
-        self.setStyleSheet(WHITE_STYLE)
+        apply_dialog_style(self)
         v = QVBoxLayout(self)
         form = QFormLayout()
         self.ed_id = QLineEdit()
-        self.ed_id.setPlaceholderText("如 my_feature 或 feature.my_feature（小写字母/数字/_.-）")
+        self.ed_id.setPlaceholderText("如 my_mod 或 %smy_mod（小写字母/数字/_.-）" % self.PREFIX)
         self.ed_name = QLineEdit()
-        self.ed_name.setPlaceholderText("显示名，如 我的功能")
-        form.addRow("功能模组 id", self.ed_id)
+        self.ed_name.setPlaceholderText("显示名，如 我的模组")
+        form.addRow("模组 id", self.ed_id)
         form.addRow("名称", self.ed_name)
         v.addLayout(form)
-        tip = QLabel("生成 Hello World 模板; 之后直接改 mods/feature.<id>/plugin.py 写自己的实现。")
-        tip.setStyleSheet("color: #777777;")
+        tip = QLabel(self.TIP)
+        tip.setWordWrap(True)
         v.addWidget(tip)
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
@@ -516,84 +486,68 @@ class NewFeatureModDialog(QDialog):
         btns.rejected.connect(self.reject)
         v.addWidget(btns)
 
-    def _save(self):
+    def _base_id(self):
+        """去掉可选前缀并校验, 返回短名; 不合法时弹窗并返回 None。"""
         base = self.ed_id.text().strip().lower()
-        if base.startswith("feature."):
-            base = base[len("feature."):]
+        if base.startswith(self.PREFIX):
+            base = base[len(self.PREFIX):]
         if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]*", base or ""):
             QMessageBox.warning(self, "id 不合法", "只允许小写字母/数字/_.-，且不能以符号开头。")
-            return
-        mid = "feature." + base
+            return None
+        return base
+
+    def _check_conflict(self, mid):
         taken = {m.id for m in self.mm.registry.all_mods}
         if mid in taken:
             QMessageBox.warning(self, "id 冲突", "模组已存在: " + mid)
+            return False
+        return True
+
+    def _save(self):
+        """子类实现: 校验通过后创建模组, 成功则 set created_id 并 accept。"""
+        raise NotImplementedError
+
+
+class NewFeatureModDialog(_NewModDialogBase):
+    """新建功能模组: 输入 id/名称, 经 mm.create_feature_mod 生成并热启用。"""
+
+    PREFIX = "feature."
+    WINDOW_TITLE = "新建功能模组"
+    TIP = "生成 Hello World 模板; 之后直接改 mods/feature.<id>/plugin.py 写自己的实现。"
+
+    def _save(self):
+        base = self._base_id()
+        if base is None:
+            return
+        mid = "feature." + base
+        if not self._check_conflict(mid):
             return
         name = self.ed_name.text().strip() or base
         try:
             fut = self.mm.fire(self.mm.create_feature_mod(mid, name))
-            self._wait_fire(fut, 10)
+            wait_fire(fut, 10)
         except Exception as e:
             QMessageBox.warning(self, "创建失败", str(e))
             return
         self.created_id = mid
         self.accept()
 
-    @staticmethod
-    def _wait_fire(fut, timeout=10):
-        if fut is None:
-            return
-        if isinstance(fut, asyncio.Task):
-            try:
-                fut.result()
-            except asyncio.InvalidStateError:
-                pass
-            except Exception:
-                raise
-        else:
-            fut.result(timeout)
 
-
-class NewRuleTemplateDialog(QDialog):
+class NewRuleTemplateDialog(_NewModDialogBase):
     """新建行为规则模板: 生成一个带示例规则的 behavior.* 模组(全局规则)。"""
 
-    def __init__(self, mm, parent=None):
-        super().__init__(parent)
-        self.mm = mm
-        self.created_id = ""
-        self.setWindowTitle("新建规则模板")
-        self.resize(440, 200)
-        self.setStyleSheet(WHITE_STYLE)
-        v = QVBoxLayout(self)
-        form = QFormLayout()
-        self.ed_id = QLineEdit()
-        self.ed_id.setPlaceholderText("如 my_rules 或 behavior.my_rules（小写字母/数字/_.-）")
-        self.ed_name = QLineEdit()
-        self.ed_name.setPlaceholderText("显示名，如 我的规则")
-        form.addRow("规则模组 id", self.ed_id)
-        form.addRow("名称", self.ed_name)
-        v.addLayout(form)
-        tip = QLabel("提示: 角色专属规则请在「角色卡管理器 → 行为」里编辑。")
-        tip.setStyleSheet("color: #777777;")
-        v.addWidget(tip)
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        btns.accepted.connect(self._save)
-        btns.rejected.connect(self.reject)
-        v.addWidget(btns)
+    PREFIX = "behavior."
+    WINDOW_TITLE = "新建规则模板"
+    TIP = "生成带示例规则的 behavior.* 模组。\n提示: 角色专属规则请在「角色卡管理器 → 行为」里编辑。"
 
     def _save(self):
-        base = self.ed_id.text().strip().lower()
-        if base.startswith("behavior."):
-            base = base[len("behavior."):]
-        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]*", base or ""):
-            QMessageBox.warning(self, "id 不合法", "只允许小写字母/数字/_.-，且不能以符号开头。")
+        base = self._base_id()
+        if base is None:
+            return
+        mid = "behavior." + base
+        if not self._check_conflict(mid):
             return
         name = self.ed_name.text().strip() or base
-        mid = "behavior." + base
-        taken = {m.id for m in self.mm.registry.all_mods}
-        if mid in taken:
-            QMessageBox.warning(self, "id 冲突", "模组已存在: " + mid)
-            return
         d = os.path.join(paths.MODS_DIR, mid)
         try:
             os.makedirs(d, exist_ok=True)
@@ -607,9 +561,7 @@ class NewRuleTemplateDialog(QDialog):
                     "then": [{"say": "（把这里换成你的规则台词）"}],
                 }],
             })
-            fut = self.mm.rescan()
-            if fut is not None:
-                fut.result(5)
+            wait_rescan(self.mm.rescan())
             self.created_id = mid
             self.accept()
         except Exception as e:

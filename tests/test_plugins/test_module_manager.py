@@ -273,7 +273,7 @@ async def test_settings_dialog_saves_config_and_char_prompt(mm_env, qapp):
     dlg.ed_key.setText("sk-test")
     dlg.ed_base.setText("https://example.com")
     dlg.ed_model.setCurrentText("model-x")
-    dlg.ed_temp.setText("1.2")
+    dlg.sld_temp.setValue(12)                 # 1.2(滑条步长 0.1)
     dlg.ed_effort.setCurrentIndex(2)          # medium
     dlg.ed_prompt.setPlainText("新人设")
     dlg._save()

@@ -176,10 +176,7 @@ class PetWindow(QWidget):
         return theme.merge_theme(skin.theme if skin else {})
 
     def _menu_qss(self):
-        t = self.current_theme()
-        return ("QMenu { background: %(menu_bg)s; color: %(menu_fg)s;"
-                " border: 1px solid %(accent)s; }"
-                "QMenu::item:selected { background: %(menu_hover)s; }") % t
+        return theme.menu_qss(self.current_theme())
 
     def set_feature_menu(self, entries):
         """bridge/module_manager 同步功能菜单项(仅 Qt 线程调用)。"""
@@ -256,45 +253,48 @@ class PetWindow(QWidget):
         try:
             menu = QMenu(self)
             menu.setStyleSheet(self._menu_qss())
-
-            self._add(menu, "摸摸头", self._on_petted)
-
-            emo_menu = menu.addMenu("表情")
-            for key, emo in self.registry.character_emotes(
-                    self.char.id if self.char else "").items():
-                self._add(emo_menu, emo.name, lambda k=key: self.set_emotion(k))
-
-            if self.registry.characters:
-                card_menu = menu.addMenu("角色卡")
-                for cid, c in self.registry.characters.items():
-                    mark = "● " if (self.char and cid == self.char.id) else ""
-                    self._add(card_menu, mark + c.name, lambda k=cid: self._switch_character(k))
-
-            if self.registry.uis:
-                ui_menu = menu.addMenu("皮肤")
-                cur_ui = self.config.get("mods.ui", "")
-                for uid, u in self.registry.uis.items():
-                    mark = "● " if uid == cur_ui else ""
-                    self._add(ui_menu, mark + u.name, lambda k=uid: self._switch_ui(k))
-
-            size_menu = menu.addMenu("大小")
-            for key, name in [("small", "小"), ("medium", "中"), ("large", "大")]:
-                cur = "● " if self.config.get("window.size") == key else ""
-                self._add(size_menu, cur + name, lambda k=key: self._set_size(k))
-
-            sit_on = self.config.get("window.sit_reminder", True)
-            self._add(menu, "久坐提醒: " + ("开" if sit_on else "关"), self._toggle_sit)
-
-            if self.feature_menu:
-                feat_menu = menu.addMenu("功能")
-                for label, cb in self.feature_menu:
-                    self._add(feat_menu, label, cb)
-
-            menu.addSeparator()
-            self._add(menu, "退出", QGuiApplication.instance().quit)
+            self._populate_menu(menu)
             menu.exec(e.globalPos())
         except Exception as ex:
             _log.warning("menu: %s", ex)
+
+    def _populate_menu(self, menu):
+        """菜单分组: 互动 → 表情 → 外观(角色卡/皮肤/大小) → 久坐提醒 → 功能 → 退出。"""
+        self._add(menu, "摸摸头", self._on_petted)
+
+        emo_menu = menu.addMenu("表情")
+        for key, emo in self.registry.character_emotes(
+                self.char.id if self.char else "").items():
+            self._add(emo_menu, emo.name, lambda k=key: self.set_emotion(k))
+
+        if self.registry.characters:
+            card_menu = menu.addMenu("角色卡")
+            for cid, c in self.registry.characters.items():
+                mark = "● " if (self.char and cid == self.char.id) else ""
+                self._add(card_menu, mark + c.name, lambda k=cid: self._switch_character(k))
+
+        if self.registry.uis:
+            ui_menu = menu.addMenu("皮肤")
+            cur_ui = self.config.get("mods.ui", "")
+            for uid, u in self.registry.uis.items():
+                mark = "● " if uid == cur_ui else ""
+                self._add(ui_menu, mark + u.name, lambda k=uid: self._switch_ui(k))
+
+        size_menu = menu.addMenu("大小")
+        for key, name in [("small", "小"), ("medium", "中"), ("large", "大")]:
+            cur = "● " if self.config.get("window.size") == key else ""
+            self._add(size_menu, cur + name, lambda k=key: self._set_size(k))
+
+        sit_on = self.config.get("window.sit_reminder", True)
+        self._add(menu, "久坐提醒: " + ("开" if sit_on else "关"), self._toggle_sit)
+
+        if self.feature_menu:
+            feat_menu = menu.addMenu("功能")
+            for label, cb in self.feature_menu:
+                self._add(feat_menu, label, cb)
+
+        menu.addSeparator()
+        self._add(menu, "退出", QGuiApplication.instance().quit)
 
     def _add(self, menu, label, fn):
         act = QAction(label, self)

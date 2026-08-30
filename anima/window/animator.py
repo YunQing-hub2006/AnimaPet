@@ -7,10 +7,10 @@
 """
 import os
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QTimer
 
 from anima.events import EventNames
+from anima.mods.loader import load_scaled_pixmap
 from anima.utils import log
 
 _log = log.get("animator")
@@ -52,11 +52,20 @@ class Animator:
         self._emote_pm_cache = {}
 
     def set_frames(self, idle_frames, talk_frames):
-        """热重载/换角色/换尺寸后重置帧源。"""
+        """热重载/换角色/换尺寸后重置帧源(空 talk 用 idle 兜底)。"""
         self.idle_frames = list(idle_frames or [])
         self.talk_frames = list(talk_frames or []) or list(self.idle_frames)
         self._emote_pm_cache = {}
         self.back_to_idle()
+
+    def _sync_timer(self):
+        """没有可画内容时停掉帧定时器(空转也耗电), 有则保证在跑。"""
+        needed = bool(self.idle_frames or self.talk_frames or self.play_frames
+                      or self.mode in ("expr", "anim"))
+        if needed and not self.anim_timer.isActive():
+            self.anim_timer.start()
+        elif not needed and self.anim_timer.isActive():
+            self.anim_timer.stop()
 
     # ------------------------------------------------------------------
     # 表现 API (规则引擎 / 功能插件 / 窗口菜单使用)
@@ -87,6 +96,7 @@ class Animator:
             self.current_emote = emote_id
             self.mode = "expr"
             self.expr_frame_idx = 0
+            self._sync_timer()          # 空帧停表时, 表情动画仍要能播
             self.expr_timer.start(max(500, int(e.hold_ms)))
             self.bus.emit(EventNames.EMOTE_SHOWN, {"emote": emote_id})
         except Exception as ex:
@@ -101,6 +111,7 @@ class Animator:
         self.current_anim_id = str(anim_id)
         self.mode = "anim"
         self.expr_frame_idx = 0
+        self._sync_timer()          # 空帧停表时被叫醒也要能播
         self.expr_timer.start(max(500, int(hold_ms)))
 
     def back_to_idle(self):
@@ -108,6 +119,7 @@ class Animator:
         self.frame_idx = 0
         self.current_emote = ""
         self.current_anim_id = ""
+        self._sync_timer()
 
     # ------------------------------------------------------------------
     # 帧状态机
@@ -167,15 +179,10 @@ class Animator:
             return pm
         path = os.path.join(e.owner_dir, e.image)
         try:
-            pm = QPixmap(path)
+            # 解码即缩放: 表情原图 2048x2048, 全解是 16MB 位图, 桌宠只要 320px
+            pm = load_scaled_pixmap(path, self.display_size)
             if pm.isNull():
                 pm = None
-            else:
-                pm = pm.scaled(
-                    self.display_size, self.display_size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
         except Exception:
             pm = None
         self._emote_pm_cache[key] = pm

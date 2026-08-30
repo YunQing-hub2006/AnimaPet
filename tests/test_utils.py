@@ -66,7 +66,8 @@ def test_theme_merge_overrides_strings():
 
 def test_theme_merge_ignores_non_string():
     t = theme.merge_theme({"font_size": "not-a-number-list", "accent": ""})
-    assert t["accent"] == "#b04060"  # 空字符串被忽略
+    # 断言回退到"默认"而不是写死色值: 换配色时不该动这条测试
+    assert t["accent"] == theme.DEFAULT_THEME["accent"]
     assert t["font_size"] == theme.DEFAULT_THEME["font_size"]
 
 

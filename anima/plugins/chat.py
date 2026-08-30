@@ -149,8 +149,13 @@ class HistoryStore:
                 "messages": self.entries,
             }, f, ensure_ascii=False, indent=2)
 
-    def import_json(self, path: str) -> int:
-        """从外部 JSON 导入(覆盖当前角色历史)。返回导入的消息条数。"""
+    def import_json(self, path: str, mode: str = "overwrite") -> int:
+        """从外部 JSON 导入当前角色历史, 返回导入(新增)的条数。
+
+        mode="overwrite": 清空后导入(兼容旧行为);
+        mode="merge": 保留现有记录, 把导入内容追加为新会话(conv 顺延),
+            并按 (ts, role, content) 去重, 避免同一文件导两次翻倍。
+        """
         with open(path, "r", encoding="utf-8") as f:
             raw = json.load(f)
         from anima.models import ChatHistory
@@ -161,8 +166,27 @@ class HistoryStore:
             model = ChatHistory(**raw)
         except Exception as e:
             raise ValueError("聊天记录 JSON 不合法: %s" % e) from e
+        incoming = self._sanitize([m.model_dump() for m in model.messages])
+        if mode == "merge":
+            existing = {(m.get("ts"), m.get("role"), m.get("content"))
+                        for m in self.entries}
+            shift = max([int(m.get("conv", 1)) for m in self.entries] or [0])
+            conv_map = {}          # 导入会话号 → 顺延后的紧凑会话号(不留空洞)
+            added = []
+            for m in incoming:
+                if (m.get("ts"), m.get("role"), m.get("content")) in existing:
+                    continue
+                old_conv = int(m.get("conv", 1))
+                if old_conv not in conv_map:
+                    conv_map[old_conv] = shift + len(conv_map) + 1
+                added.append(dict(m, conv=conv_map[old_conv]))
+            self.entries.extend(added)
+            if conv_map:
+                self.conv_id = max(conv_map.values())
+            self.save()
+            return len(added)
         self.conv_id = max(1, model.conv_id)
-        self.entries = self._sanitize([m.model_dump() for m in model.messages])
+        self.entries = incoming
         self.save()
         return len(self.entries)
 
@@ -451,13 +475,34 @@ class ChatFeature:
             panel, "导入聊天 JSON", "", "JSON (*.json);;所有文件 (*.*)")
         if not path:
             return
+        mode = self._ask_import_mode(panel)
+        if mode is None:
+            return
         try:
-            n = self._history_for(self._current_char_id()).import_json(path)
-            panel.add_system("已导入 %d 条聊天记录。" % n)
+            n = self._history_for(self._current_char_id()).import_json(path, mode)
+            panel.add_system("已%s %d 条聊天记录。" % ("合并" if mode == "merge" else "导入", n))
             self._restore_conversation_ui()
         except Exception as e:
             _log.warning("import json: %s", e)
             panel.add_system("导入失败: " + str(e))
+
+    @staticmethod
+    def _ask_import_mode(panel):
+        """问导入方式: 合并(推荐, 现有记录保留) / 覆盖 / 取消。"""
+        box = QMessageBox(panel)
+        box.setWindowTitle("导入聊天记录")
+        box.setText("怎么导入这份聊天记录?")
+        merge = box.addButton("合并(保留现有)", QMessageBox.ButtonRole.YesRole)
+        overwrite = box.addButton("覆盖现有", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(merge)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is overwrite:
+            return "overwrite"
+        if clicked is merge:
+            return "merge"
+        return None
 
     def _restore_conversation(self) -> None:
         self._restore_conversation_ui()
@@ -468,11 +513,11 @@ class ChatFeature:
             return
         panel.clear()
         name = self._pet_name()
-        for m in self._history.current_conv():
-            if m["role"] == "user":
-                panel.add_user(m["content"])
-            else:
-                panel.add_pet(m["content"], name)
+        msgs = self._history.current_conv()
+        if msgs:
+            panel.add_messages(msgs, name)
+        else:
+            panel.add_welcome(name)   # 空历史: 展示新手引导
         panel.btn_back.hide()
 
     def _search_history(self, kw: str) -> None:
@@ -482,12 +527,7 @@ class ChatFeature:
         panel.clear()
         hits = self._history_for(self._current_char_id()).search(kw)
         panel.add_system("搜索「%s」: 共 %d 条" % (kw, len(hits)))
-        for m in hits:
-            prefix = "[%s] " % m.get("ts", "") if m.get("ts") else ""
-            if m["role"] == "user":
-                panel.add_user(prefix + m["content"])
-            else:
-                panel.add_pet(prefix + m["content"])
+        panel.add_messages(hits, self._pet_name())
 
     def _show_history(self) -> None:
         panel = self._panel
@@ -499,25 +539,7 @@ class ChatFeature:
         if not groups:
             panel.add_system("还没有历史对话。先聊几句吧。")
             return
-        t = panel._theme
-        panel.add_system("—— 历史对话列表（点链接查看；点“返回”回到当前对话）——")
-        for conv in sorted(groups, reverse=True):
-            msgs = groups[conv]
-            ts = str(msgs[0].get("ts", "") or "")
-            first = next((str(m.get("content", "")) for m in msgs if m.get("role") == "user"),
-                         str(msgs[0].get("content", "")))
-            snippet = ChatPanel.esc(first)
-            if len(snippet) > 30:
-                snippet = snippet[:30] + "…"
-            cur = "（当前）" if conv == self._history.conv_id else ""
-            panel.browser.append(
-                '<div style="margin:5px 0;">'
-                '<a href="conv:%d" style="color:%s; font-weight:bold; text-decoration:none;">'
-                '[对话 %d]</a>'
-                ' <span style="color:%s;">%s ｜ %d 条 %s</span><br>'
-                '<span style="color:%s; font-size:11px;">%s</span></div>'
-                % (conv, t["accent"], conv, t["status_fg"], ts, len(msgs), cur,
-                   t["fg_browser"], snippet))
+        panel.add_history_list(groups, self._history.conv_id)
 
     def _on_history_link(self, url) -> None:
         text = str(url)
@@ -533,14 +555,8 @@ class ChatFeature:
         if panel is None:
             return
         panel.clear()
-        name = self._pet_name()
         msgs = self._history_for(self._current_char_id()).conv_messages(conv)
         panel.add_system(
             "—— 正在浏览 对话 %d（%d 条）｜ 点“返回”回到当前对话 ——" % (conv, len(msgs)))
-        for m in msgs:
-            prefix = "[%s] " % m.get("ts", "") if m.get("ts") else ""
-            if m["role"] == "user":
-                panel.add_user(prefix + m["content"])
-            else:
-                panel.add_pet(prefix + m["content"], name)
+        panel.add_messages(msgs, self._pet_name())
         panel.btn_back.show()

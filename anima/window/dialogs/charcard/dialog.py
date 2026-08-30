@@ -16,36 +16,35 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
-    QPlainTextEdit, QPushButton, QSpinBox, QSplitter, QTabWidget, QVBoxLayout,
-    QWidget,
+    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QSplitter,
+    QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from anima.mods import loader
 from anima.utils import jsonio, log, paths
+from anima.window.dialogs.common import apply_dialog_style
 from . import assets as _default_assets, wait_rescan, wizard as _default_wizard
 
 _log = log.get("feature.charcard.dialog")
 
-WHITE_STYLE = (
-    "QDialog { background: #ffffff; color: #111111; }"
-    "QLabel { background: transparent; color: #111111; }"
-    "QLineEdit, QPlainTextEdit, QComboBox, QSpinBox { background: #ffffff; color: #111111;"
-    " border: 1px solid #b0b0b0; border-radius: 3px; padding: 4px 6px; }"
-    "QListWidget { background: #ffffff; color: #111111; border: 1px solid #c0c0c0; }"
-    "QListWidget::item { padding: 2px; }"
-    "QListWidget::item:selected { background: #d6e4ff; color: #000000; }"
-    "QCheckBox { background: transparent; color: #111111; }"
-    "QPushButton { background: #f2f2f2; color: #111111; border: 1px solid #b0b0b0;"
-    " border-radius: 3px; padding: 4px 12px; }"
-    "QPushButton:hover { background: #e2e2e2; }"
-    "QTabWidget::pane { border: 1px solid #c0c0c0; }"
-    "QTabBar::tab { background: #f2f2f2; padding: 6px 14px; }"
-    "QTabBar::tab:selected { background: #ffffff; font-weight: bold; }"
-)
-
 
 class CardManagerDialog(QDialog):
+    #: 行为规则触发事件下拉(新手版): 显示名 → 事件名; "__custom__" = 自己填
+    _RULE_EVENTS = (
+        ("被摸头", "pet.petted"),
+        ("被拖动(开始)", "pet.drag_started"),
+        ("被放下(拖完)", "pet.drag_ended"),
+        ("被双击", "pet.double_clicked"),
+        ("闲置搭话(到点)", "timer.idle"),
+        ("久坐提醒(45 分钟)", "timer.sit"),
+        ("深夜(23 点后)", "timer.night"),
+        ("聊天回复后", "chat.reply"),
+        ("切换角色后", "character.switched"),
+        ("✎ 自己填事件名…", "__custom__"),
+    )
+    _CUSTOM_EVENT = "__custom__"
+
     def __init__(self, mm, parent=None, assets=None, wizard_mod=None):
         super().__init__(parent)
         self.mm = mm
@@ -59,12 +58,12 @@ class CardManagerDialog(QDialog):
 
         self.setWindowTitle("角色卡管理器")
         self.resize(980, 660)
-        self.setStyleSheet(WHITE_STYLE)
+        apply_dialog_style(self)
 
         root = QVBoxLayout(self)
         tip = QLabel("一张角色卡 = 人设 + 动画 + 台词 + 行为触发 + 表情。"
                      "所有修改写回卡文件夹并热重载, 即改即生效。")
-        tip.setStyleSheet("color: #555555;")
+        tip.setStyleSheet("color: #a08cb0;")
         root.addWidget(tip)
 
         main = QHBoxLayout()
@@ -136,9 +135,13 @@ class CardManagerDialog(QDialog):
         self.btn_import_card_anim = QPushButton("导入 PNG 文件夹到本卡…")
         self.btn_import_card_anim.clicked.connect(self._import_anim_into_card)
         row.addWidget(self.btn_import_card_anim)
+        self.btn_import_card_gif = QPushButton("导入 GIF 到本卡…")
+        self.btn_import_card_gif.setToolTip("选一个 GIF 文件, 自动拆成序列帧存进这张卡")
+        self.btn_import_card_gif.clicked.connect(self._import_gif_into_card)
+        row.addWidget(self.btn_import_card_gif)
         v.addLayout(row)
         tip = QLabel("卡内动画显示为短名(存在卡文件夹 anims/ 里); 带点号的是公共素材库引用。")
-        tip.setStyleSheet("color: #777777;")
+        tip.setStyleSheet("color: #a08cb0;")
         v.addWidget(tip)
         self.anim_preview = self.assets.PreviewBox()
         v.addWidget(self.anim_preview, 1)
@@ -172,6 +175,10 @@ class CardManagerDialog(QDialog):
         return w
 
     def _build_behavior_page(self):
+        """行为规则可视化编辑: 事件下拉 + 动作搭建器, 不需要写任何 JSON。
+
+        高级用户仍可经「编辑选中规则 JSON…」直接改原始规则。
+        """
         w = QWidget()
         v = QVBoxLayout(w)
         self.lbl_beh_hint = QLabel("")
@@ -185,32 +192,84 @@ class CardManagerDialog(QDialog):
         self.rules_list = QListWidget()
         self.rules_list.currentRowChanged.connect(self._on_rule_selected)
         v.addWidget(self.rules_list, 1)
+
         form2 = QFormLayout()
-        self.ed_rule_on = QLineEdit()
-        self.ed_rule_on.setPlaceholderText("如 pet.petted / timer.idle / chat.reply")
+        self.cmb_rule_on = QComboBox()
+        for label, ev in self._RULE_EVENTS:
+            self.cmb_rule_on.addItem(label, ev)
+        self.cmb_rule_on.currentIndexChanged.connect(self._on_rule_event_changed)
+        form2.addRow(self._field("什么时候触发", "宠物遇到这件事时执行下面的动作"), self.cmb_rule_on)
+        self.ed_rule_on_custom = QLineEdit()
+        self.ed_rule_on_custom.setPlaceholderText("自己填事件名, 如 feature.xxx.done")
+        self.ed_rule_on_custom.hide()
+        form2.addRow("", self.ed_rule_on_custom)
         self.ed_rule_when = QLineEdit()
-        self.ed_rule_when.setPlaceholderText("可空, 如 event.affinity % 20 == 0")
+        self.ed_rule_when.setPlaceholderText("留空 = 每次都触发")
+        self.ed_rule_when.setToolTip(
+            "进阶: 触发条件表达式, 如 event.affinity >= 10 / rand < 0.5。新手留空即可。")
+        form2.addRow(self._field("触发条件", "进阶选项, 留空就是每次都触发"), self.ed_rule_when)
         self.ed_rule_cooldown = QLineEdit()
-        self.ed_rule_cooldown.setPlaceholderText("可空, 秒")
-        form2.addRow("on 触发事件", self.ed_rule_on)
-        form2.addRow("when 条件", self.ed_rule_when)
-        form2.addRow("cooldown 冷却", self.ed_rule_cooldown)
+        self.ed_rule_cooldown.setPlaceholderText("留空 = 不限(建议填, 防刷屏)")
+        self.ed_rule_cooldown.setToolTip("两次触发之间的最小间隔秒数")
+        form2.addRow(self._field("冷却(秒)", "两次触发至少间隔多少秒, 防止刷屏"), self.ed_rule_cooldown)
         v.addLayout(form2)
-        v.addWidget(QLabel("then 动作 (JSON 数组, 如 "
-                           '[{"say": "@idle.this.default"}, {"emote": "default"}])'))
-        self.ed_rule_then = QPlainTextEdit()
-        self.ed_rule_then.setMaximumHeight(110)
-        v.addWidget(self.ed_rule_then)
+
+        v.addWidget(QLabel("然后做什么(动作列表, 从上到下依次执行):"))
+        self.lst_actions = QListWidget()
+        self.lst_actions.setMaximumHeight(110)
+        self.lst_actions.currentRowChanged.connect(self._on_action_selected)
+        v.addWidget(self.lst_actions)
+
+        editor = QHBoxLayout()
+        self.cmb_action_kind = QComboBox()
+        self.cmb_action_kind.addItem("说话", "say")
+        self.cmb_action_kind.addItem("做表情", "emote")
+        self.cmb_action_kind.addItem("播动画", "anim")
+        self.cmb_action_kind.currentIndexChanged.connect(self._on_action_kind_changed)
+        editor.addWidget(self.cmb_action_kind)
+        self.stack_action_value = QStackedWidget()
+        self.cmb_action_say = QComboBox()
+        self.cmb_action_say.setEditable(True)
+        self.cmb_action_say.setToolTip("直接打字=说这句话; 选 @idle.this.段名=随机说该段台词")
+        self.stack_action_value.addWidget(self.cmb_action_say)
+        self.cmb_action_emote = QComboBox()
+        self.stack_action_value.addWidget(self.cmb_action_emote)
+        self.cmb_action_anim = QComboBox()
+        self.stack_action_value.addWidget(self.cmb_action_anim)
+        editor.addWidget(self.stack_action_value, 1)
+        self.btn_action_add = QPushButton("＋ 添加")
+        self.btn_action_add.clicked.connect(self._add_action_from_editor)
+        editor.addWidget(self.btn_action_add)
+        self.btn_action_update = QPushButton("更新选中")
+        self.btn_action_update.clicked.connect(self._update_action_from_editor)
+        editor.addWidget(self.btn_action_update)
+        v.addLayout(editor)
+
         btns = QHBoxLayout()
+        self.btn_action_del = QPushButton("删除动作")
+        self.btn_action_del.clicked.connect(self._delete_action)
+        self.btn_action_up = QPushButton("上移")
+        self.btn_action_up.clicked.connect(lambda: self._move_action(-1))
+        self.btn_action_down = QPushButton("下移")
+        self.btn_action_down.clicked.connect(lambda: self._move_action(1))
+        for b in (self.btn_action_del, self.btn_action_up, self.btn_action_down):
+            btns.addWidget(b)
+        btns.addStretch(1)
+        self.btn_rule_json = QPushButton("编辑选中规则 JSON…(高级)")
+        self.btn_rule_json.clicked.connect(self._edit_rule_json)
+        btns.addWidget(self.btn_rule_json)
+        v.addLayout(btns)
+
+        btns2 = QHBoxLayout()
         self.btn_add_rule = QPushButton("添加规则")
         self.btn_add_rule.clicked.connect(self._add_rule)
-        self.btn_upd_rule = QPushButton("更新选中")
+        self.btn_upd_rule = QPushButton("更新选中规则")
         self.btn_upd_rule.clicked.connect(self._update_rule)
-        self.btn_del_rule = QPushButton("删除选中")
+        self.btn_del_rule = QPushButton("删除选中规则")
         self.btn_del_rule.clicked.connect(self._delete_rule)
         for b in (self.btn_add_rule, self.btn_upd_rule, self.btn_del_rule):
-            btns.addWidget(b)
-        v.addLayout(btns)
+            btns2.addWidget(b)
+        v.addLayout(btns2)
         self.btn_save_beh = QPushButton("保存行为规则并热重载")
         self.btn_save_beh.clicked.connect(self._save_beh)
         v.addWidget(self.btn_save_beh)
@@ -282,6 +341,10 @@ class CardManagerDialog(QDialog):
         self.btn_import_lib = QPushButton("+ 导入 PNG 文件夹到素材库…")
         self.btn_import_lib.clicked.connect(self._import_anim_to_library)
         lv.addWidget(self.btn_import_lib)
+        self.btn_import_lib_gif = QPushButton("+ 导入 GIF 到素材库…")
+        self.btn_import_lib_gif.setToolTip("选一个 GIF 文件, 自动拆成序列帧进公共素材库")
+        self.btn_import_lib_gif.clicked.connect(self._import_gif_to_library)
+        lv.addWidget(self.btn_import_lib_gif)
         splitter.addWidget(left)
         self.lib_preview = self.assets.PreviewBox()
         splitter.addWidget(self.lib_preview)
@@ -441,6 +504,26 @@ class CardManagerDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self, "导入失败", str(e))
 
+    def _import_gif_into_card(self):
+        c = self._char()
+        if c is None:
+            return
+        if not self._is_card(c):
+            QMessageBox.information(self, "旧式角色模组",
+                                    "该角色是旧式 char.* 模组, 动画请导入素材库后在上方引用。")
+            return
+        src, _ = QFileDialog.getOpenFileName(self, "选择 GIF 文件", "",
+                                             "GIF 动画 (*.gif);;所有文件 (*.*)")
+        if not src:
+            return
+        try:
+            short = self.assets.import_gif_to_card(c.dir, src)
+            self._reload_and_refresh(c.id)
+            QMessageBox.information(self, "导入成功",
+                                    "GIF 已拆帧导入为卡内动画「%s」, 可在上方下拉选用。" % short)
+        except Exception as e:
+            QMessageBox.warning(self, "导入失败", str(e))
+
     # ==================================================================
     # 台词
     # ==================================================================
@@ -523,8 +606,11 @@ class CardManagerDialog(QDialog):
         has = self.cmb_beh_mod.count() > 0
         for wdg in (self.cmb_beh_mod, self.rules_list, self.btn_add_rule,
                     self.btn_upd_rule, self.btn_del_rule, self.btn_save_beh,
-                    self.ed_rule_on, self.ed_rule_when, self.ed_rule_cooldown,
-                    self.ed_rule_then):
+                    self.cmb_rule_on, self.ed_rule_when, self.ed_rule_cooldown,
+                    self.lst_actions, self.cmb_action_kind,
+                    self.btn_action_add, self.btn_action_update,
+                    self.btn_action_del, self.btn_action_up, self.btn_action_down,
+                    self.btn_rule_json):
             wdg.setEnabled(has)
         global_rules = [m for m in self.registry.behaviors.values()
                         if not getattr(m, "character", "")]
@@ -540,35 +626,66 @@ class CardManagerDialog(QDialog):
                             for r in (m.rules if m else [])]
         self._refresh_rules(0 if self._rules_data else -1)
 
+    # ------------------------------------------------------------------
+    # 规则列表 ↔ 表单
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _event_label(cls, ev):
+        for label, name in cls._RULE_EVENTS:
+            if name == ev:
+                return label
+        return str(ev)
+
     def _refresh_rules(self, select):
         self.rules_list.blockSignals(True)
         self.rules_list.clear()
         for i, r in enumerate(self._rules_data):
             then_n = len(r.get("then") or []) if isinstance(r.get("then"), list) else 0
-            self.rules_list.addItem("#%d  on=%s  when=%s  then=%d 个动作"
-                                    % (i, r.get("on", ""), r.get("when", ""), then_n))
+            cd = (" · 冷却%ss" % r["cooldown"]) if r.get("cooldown") else ""
+            self.rules_list.addItem("#%d  %s → %d 个动作%s"
+                                    % (i, self._event_label(r.get("on", "")), then_n, cd))
         self.rules_list.blockSignals(False)
         if 0 <= select < self.rules_list.count():
             self.rules_list.setCurrentRow(select)
             self._on_rule_selected(select)
         else:
-            self.ed_rule_on.clear()
-            self.ed_rule_when.clear()
-            self.ed_rule_cooldown.clear()
-            self.ed_rule_then.clear()
+            self._load_rule_form(None)
 
     def _on_rule_selected(self, row):
-        if row < 0 or row >= len(self._rules_data):
-            return
-        r = self._rules_data[row]
-        self.ed_rule_on.setText(str(r.get("on", "")))
-        self.ed_rule_when.setText(str(r.get("when", "")))
-        self.ed_rule_cooldown.setText(str(r.get("cooldown", "")))
-        self.ed_rule_then.setPlainText(
-            json.dumps(r.get("then") or [], ensure_ascii=False, indent=1))
+        if 0 <= row < len(self._rules_data):
+            self._load_rule_form(self._rules_data[row])
+
+    def _load_rule_form(self, rule):
+        """把规则填进表单(rule=None 时清空, 供"添加新规则"起步)。"""
+        r = rule or {}
+        ev = str(r.get("on", "") or "")
+        idx = self.cmb_rule_on.findData(ev)
+        using_custom = idx < 0 and bool(ev)   # 空事件(新规则)默认选第一项
+        if using_custom:
+            self.cmb_rule_on.setCurrentIndex(self.cmb_rule_on.count() - 1)
+            self.ed_rule_on_custom.show()
+            self.ed_rule_on_custom.setText(ev)
+        else:
+            self.cmb_rule_on.setCurrentIndex(idx if rule is not None else 0)
+            self.ed_rule_on_custom.hide()
+            self.ed_rule_on_custom.clear()
+        self.ed_rule_when.setText(str(r.get("when", "") or ""))
+        self.ed_rule_cooldown.setText(str(r.get("cooldown", "")) if rule is not None else "")
+        self._actions_data = list(r.get("then") or []) if rule is not None else []
+        self._refresh_actions(select=-1)
+        self._sync_say_suggestions()
+        self._refresh_action_value_options()
+
+    def _rule_on_value(self):
+        """表单 → 事件名(选"自己填"时取输入框)。"""
+        if self.cmb_rule_on.currentData() == self._CUSTOM_EVENT:
+            return self.ed_rule_on_custom.text().strip()
+        return str(self.cmb_rule_on.currentData() or "pet.petted")
 
     def _rule_from_form(self):
-        rule = {"on": self.ed_rule_on.text().strip() or "pet.petted"}
+        """表单 + 动作列表 → 规则 dict(动作列表为空视为没配完, 拒绝)。"""
+        rule = {"on": self._rule_on_value() or "pet.petted"}
         when = self.ed_rule_when.text().strip()
         if when:
             rule["when"] = when
@@ -577,19 +694,15 @@ class CardManagerDialog(QDialog):
             try:
                 rule["cooldown"] = max(0, int(cd))
             except ValueError:
-                pass
-        then_text = self.ed_rule_then.toPlainText().strip()
-        if then_text:
-            try:
-                then = json.loads(then_text)
-                if not isinstance(then, list):
-                    raise ValueError("then 必须是 JSON 数组")
-                rule["then"] = then
-            except ValueError as e:
-                QMessageBox.warning(self, "then 格式错误", str(e))
+                QMessageBox.warning(self, "冷却填错了", "冷却要填整数秒, 比如 5; 不想限制就留空。")
                 return None
-        else:
-            rule["then"] = []
+        then = list(getattr(self, "_actions_data", []))
+        if not then:
+            QMessageBox.warning(
+                self, "还没有加动作",
+                "先在「然后做什么」里选好动作并点「＋ 添加」, 规则才知道要干什么。")
+            return None
+        rule["then"] = then
         return rule
 
     def _add_rule(self):
@@ -617,6 +730,157 @@ class CardManagerDialog(QDialog):
             self._rules_data.pop(row)
             self._refresh_rules(select=max(0, min(row, len(self._rules_data) - 1))
                                 if self._rules_data else -1)
+
+    def _edit_rule_json(self):
+        """高级出口: 直接编辑选中规则的原始 JSON(校验后才生效)。"""
+        row = self.rules_list.currentRow()
+        if row < 0 or row >= len(self._rules_data):
+            QMessageBox.information(self, "编辑 JSON", "请先在上方列表选中一条规则。")
+            return
+        text = json.dumps(self._rules_data[row], ensure_ascii=False, indent=1)
+        out, ok = QInputDialog.getMultiLineText(
+            self, "编辑规则 JSON (高级)",
+            "字段: on 事件 / when 条件(可空) / cooldown 秒(可空) / then 动作数组", text)
+        if not ok:
+            return
+        try:
+            rule = json.loads(out)
+            if not isinstance(rule, dict) or not str(rule.get("on", "")).strip():
+                raise ValueError("必须是对象, 且 on 不能为空")
+            if not isinstance(rule.get("then", []), list):
+                raise ValueError("then 必须是数组")
+        except ValueError as e:
+            QMessageBox.warning(self, "JSON 不合法", str(e))
+            return
+        self._rules_data[row] = rule
+        self._refresh_rules(select=row)
+
+    # ------------------------------------------------------------------
+    # 动作搭建器(then 列表的可视化编辑)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _field(name, tip):
+        lbl = QLabel(name)
+        lbl.setToolTip(tip)
+        return lbl
+
+    def _on_rule_event_changed(self, _idx):
+        custom = self.cmb_rule_on.currentData() == self._CUSTOM_EVENT
+        self.ed_rule_on_custom.setVisible(custom)
+        if custom:
+            self.ed_rule_on_custom.setFocus()
+
+    def _on_action_kind_changed(self, _idx):
+        self.stack_action_value.setCurrentIndex(self.cmb_action_kind.currentIndex())
+
+    def _sync_say_suggestions(self):
+        """说话下拉给出现有台词段(@idle.this.<段>), 也可自己打字。"""
+        p = self.registry.idle_packs.get(self.current_id + ":idle")
+        secs = sorted((p.sections if p else {}).keys())
+        self.cmb_action_say.blockSignals(True)
+        self.cmb_action_say.clear()
+        for s in secs:
+            self.cmb_action_say.addItem("@idle.this." + s)
+        self.cmb_action_say.blockSignals(False)
+
+    def _refresh_action_value_options(self):
+        """按当前角色刷新表情/动画下拉。"""
+        self.cmb_action_emote.blockSignals(True)
+        self.cmb_action_emote.clear()
+        for eid, e in self.registry.character_emotes(self.current_id).items():
+            self.cmb_action_emote.addItem("%s (%s)" % (e.name, eid), eid)
+        self.cmb_action_emote.blockSignals(False)
+        self.cmb_action_anim.blockSignals(True)
+        self.cmb_action_anim.clear()
+        for aid, a in sorted(self.registry.anims.items()):
+            self.cmb_action_anim.addItem("%s (%s)" % (a.name or aid, aid), aid)
+        self.cmb_action_anim.blockSignals(False)
+
+    @classmethod
+    def _action_label(cls, a):
+        """动作 dict → 人话(未知类型原样显示 JSON)。"""
+        if "say" in a:
+            return "说话: %s" % a["say"]
+        if "emote" in a:
+            return "做表情: %s" % a["emote"]
+        if "anim" in a:
+            return "播动画: %s" % a["anim"]
+        return json.dumps(a, ensure_ascii=False)
+
+    def _refresh_actions(self, select=-1):
+        self.lst_actions.blockSignals(True)
+        self.lst_actions.clear()
+        for a in self._actions_data:
+            self.lst_actions.addItem(self._action_label(a) if isinstance(a, dict) else str(a))
+        self.lst_actions.blockSignals(False)
+        if 0 <= select < self.lst_actions.count():
+            self.lst_actions.setCurrentRow(select)
+
+    def _action_from_editor(self):
+        """编辑行 → 动作 dict。"""
+        kind = self.cmb_action_kind.currentData()
+        if kind == "say":
+            return {"say": self.cmb_action_say.currentText().strip()}
+        if kind == "emote":
+            return {"emote": str(self.cmb_action_emote.currentData()
+                                 or self.cmb_action_emote.currentText())}
+        return {"anim": str(self.cmb_action_anim.currentData()
+                            or self.cmb_action_anim.currentText())}
+
+    def _add_action_from_editor(self):
+        a = self._action_from_editor()
+        if not next(iter(a.values()), ""):
+            QMessageBox.information(self, "动作是空的", "先选好说什么/做什么表情/播哪个动画。")
+            return
+        self._actions_data.append(a)
+        self._refresh_actions(select=len(self._actions_data) - 1)
+
+    def _update_action_from_editor(self):
+        row = self.lst_actions.currentRow()
+        if row < 0 or row >= len(self._actions_data):
+            QMessageBox.information(self, "更新动作", "请先在动作列表里选中一条。")
+            return
+        a = self._action_from_editor()
+        if not next(iter(a.values()), ""):
+            QMessageBox.information(self, "动作是空的", "先选好说什么/做什么表情/播哪个动画。")
+            return
+        self._actions_data[row] = a
+        self._refresh_actions(select=row)
+
+    def _on_action_selected(self, row):
+        if not (0 <= row < len(self._actions_data)):
+            return
+        a = self._actions_data[row]
+        if not isinstance(a, dict):
+            return
+        self._refresh_action_value_options()
+        if "say" in a:
+            self.cmb_action_kind.setCurrentIndex(0)
+            self.cmb_action_say.setCurrentText(str(a["say"]))
+        elif "emote" in a:
+            self.cmb_action_kind.setCurrentIndex(1)
+            idx = self.cmb_action_emote.findData(str(a["emote"]))
+            self.cmb_action_emote.setCurrentIndex(max(0, idx))
+        elif "anim" in a:
+            self.cmb_action_kind.setCurrentIndex(2)
+            idx = self.cmb_action_anim.findData(str(a["anim"]))
+            self.cmb_action_anim.setCurrentIndex(max(0, idx))
+
+    def _delete_action(self):
+        row = self.lst_actions.currentRow()
+        if 0 <= row < len(self._actions_data):
+            self._actions_data.pop(row)
+            self._refresh_actions(select=min(row, len(self._actions_data) - 1))
+
+    def _move_action(self, delta):
+        row = self.lst_actions.currentRow()
+        new = row + delta
+        if not (0 <= row < len(self._actions_data)) or not (0 <= new < len(self._actions_data)):
+            return
+        self._actions_data[row], self._actions_data[new] = \
+            self._actions_data[new], self._actions_data[row]
+        self._refresh_actions(select=new)
 
     def _save_beh(self):
         m = self._current_beh_mod()
@@ -820,6 +1084,21 @@ class CardManagerDialog(QDialog):
             wait_rescan(self.mm.rescan())
             self._reload_library()
             QMessageBox.information(self, "导入成功", "已导入为动画模组: %s" % new_id)
+        except Exception as e:
+            QMessageBox.warning(self, "导入失败", str(e))
+
+    def _import_gif_to_library(self):
+        from anima.window.dialogs.common import import_gif
+        src, _ = QFileDialog.getOpenFileName(self, "选择 GIF 文件", "",
+                                             "GIF 动画 (*.gif);;所有文件 (*.*)")
+        if not src:
+            return
+        try:
+            new_id, _d = import_gif(src)
+            wait_rescan(self.mm.rescan())
+            self._reload_library()
+            QMessageBox.information(self, "导入成功",
+                                    "GIF 已拆帧导入为动画模组: %s" % new_id)
         except Exception as e:
             QMessageBox.warning(self, "导入失败", str(e))
 

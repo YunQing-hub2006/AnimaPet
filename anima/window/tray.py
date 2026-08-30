@@ -6,7 +6,7 @@
 """
 from PyQt6.QtCore import QObject, Qt
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
-from PyQt6.QtWidgets import QMenu, QSystemTrayIcon
+from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from anima.utils import log
 
@@ -79,8 +79,9 @@ class TrayController(QObject):
             win._switch_ui(uid)
 
     def _quit(self):
-        from PyQt6.QtWidgets import QApplication
-        QApplication.instance().quit() if QApplication.instance() else None
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     @property
     def tray(self):

@@ -5,6 +5,9 @@ data/
 # Mimosa 安全工具运行产物
 .mimosa/
 
+# 会话记忆与工作笔记（.workbuddy/memory/ 等）
+.workbuddy/
+
 # PyInstaller 构建产物
 build/
 dist/

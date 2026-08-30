@@ -26,9 +26,8 @@ class Bubble(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.label = QLabel(self)
         self.label.setWordWrap(True)
-        self.label.setFont(QFont("Microsoft YaHei", 10))
         self.apply_theme({})
-        self.label.setFixedWidth(240)
+        self.label.setFixedWidth(260)
         self._timer = QTimer(self)
         self._timer.setInterval(45)
         self._timer.timeout.connect(self._tick)
@@ -40,11 +39,8 @@ class Bubble(QWidget):
     def apply_theme(self, theme_dict):
         """气泡配色跟随皮肤主题(theme 可只含覆盖键, 自动合并默认)。"""
         t = theme.merge_theme(theme_dict)
-        self.label.setStyleSheet(
-            "QLabel {{ background: {bubble_bg}; color: {bubble_fg};"
-            " border: 1px solid {accent}; border-radius: 10px; padding: 8px 10px; }}"
-            .format(**t)
-        )
+        self.label.setStyleSheet(theme.bubble_qss(t))
+        self.label.setFont(QFont(t["font_family"], t["font_size"]))
 
     def is_typing(self):
         """正在打字 = 宠物在"说话"(窗口用它切换说话动画)。"""

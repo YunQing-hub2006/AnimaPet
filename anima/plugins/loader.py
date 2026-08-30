@@ -44,6 +44,9 @@ class LoaderPlugin(Plugin):
 
     def scan(self) -> tuple[int, list]:
         """扫描 mods/ 并按 config.mods.enabled 分流收纳。返回 (模组数, errors)。"""
+        # 帧缓存按 (目录, 尺寸) 复用, 重扫意味着盘上素材可能已变 -> 整体作废,
+        # 否则新注册表会命中改图之前的旧帧。
+        mods_loader.clear_frame_cache()
         enabled = self._enabled_map()
         mods, errors = mods_loader.scan_mods()
         self._registry.apply(mods, enabled, errors)

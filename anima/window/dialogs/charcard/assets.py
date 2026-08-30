@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""角色卡管理器共用组件: 动画预览盒 + 动画导入工具。"""
+"""角色卡管理器共用组件: 动画预览盒 + 动画导入工具。
+
+导入实现统一在 dialogs.common(PNG 文件夹 → anim.* 模组), 此处薄封装保持
+原有可注入接口不变。
+"""
 import os
 import re
 import shutil
@@ -10,6 +14,10 @@ from PyQt6.QtWidgets import (
 )
 
 from anima.utils import jsonio, paths
+from anima.window.dialogs.common import (
+    extract_gif_frames,
+    import_anim_folder as _import_folder,
+)
 
 
 # ----------------------------------------------------------------------
@@ -22,26 +30,18 @@ def _pngs(src):
 
 def import_anim_to_library(src):
     """PNG 文件夹 → 公共素材库 anim.* 模组。返回 (new_id, mod_dir)。"""
-    files = _pngs(src)
-    if not files:
-        raise ValueError("所选文件夹里没有 PNG 文件。")
-    base = re.sub(r"[^\w一-鿿-]+", "_", os.path.basename(src)).strip("_") or "anim"
+    return _import_folder(src)
+
+
+def _alloc_card_anim_dir(card_dir, base):
+    """在卡内 anims/ 下分配 <短名>/frames 目录(重名加序号), 返回短名。"""
     name = base
     i = 1
-    while os.path.isdir(os.path.join(paths.MODS_DIR, "anim." + name)):
+    while os.path.isdir(os.path.join(card_dir, "anims", name)):
         i += 1
         name = "%s_%d" % (base, i)
-    mid = "anim." + name
-    d = os.path.join(paths.MODS_DIR, mid)
-    os.makedirs(os.path.join(d, "frames"), exist_ok=True)
-    for f in files:
-        shutil.copy2(os.path.join(src, f), os.path.join(d, "frames", f))
-    jsonio.save(os.path.join(d, "manifest.json"), {
-        "id": mid, "type": "anim", "version": "1.0.0",
-        "name": name, "fps": 12, "frames_dir": "frames",
-        "description": "导入的动画(公共素材库)",
-    })
-    return mid, d
+    os.makedirs(os.path.join(card_dir, "anims", name, "frames"), exist_ok=True)
+    return name
 
 
 def import_anim_to_card(card_dir, src):
@@ -50,15 +50,20 @@ def import_anim_to_card(card_dir, src):
     if not files:
         raise ValueError("所选文件夹里没有 PNG 文件。")
     base = re.sub(r"[^\w一-鿿-]+", "_", os.path.basename(src)).strip("_").lower() or "anim"
-    name = base
-    i = 1
-    while os.path.isdir(os.path.join(card_dir, "anims", name)):
-        i += 1
-        name = "%s_%d" % (base, i)
-    d = os.path.join(card_dir, "anims", name)
-    os.makedirs(os.path.join(d, "frames"), exist_ok=True)
+    name = _alloc_card_anim_dir(card_dir, base)
+    frames_dir = os.path.join(card_dir, "anims", name, "frames")
     for f in files:
-        shutil.copy2(os.path.join(src, f), os.path.join(d, "frames", f))
+        shutil.copy2(os.path.join(src, f), os.path.join(frames_dir, f))
+    return name
+
+
+def import_gif_to_card(card_dir, src_gif):
+    """GIF → 角色卡内 anims/<短名>/frames(自动解帧)。返回短名。"""
+    stem = os.path.splitext(os.path.basename(src_gif))[0]
+    base = re.sub(r"[^\w一-鿿-]+", "_", stem).strip("_").lower() or "anim"
+    name = _alloc_card_anim_dir(card_dir, base)
+    frames_dir = os.path.join(card_dir, "anims", name, "frames")
+    extract_gif_frames(src_gif, frames_dir)
     return name
 
 
@@ -78,7 +83,8 @@ class PreviewBox(QGroupBox):
         self.canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.canvas.setMinimumSize(240, 240)
         self.canvas.setStyleSheet(
-            "QLabel { background: #fafafa; color: #888888; border: 1px solid #c0c0c0; }"
+            "QLabel { background: #1d1526; color: #a08cb0; border: 1px solid #b04060;"
+            " border-radius: 6px; }"
         )
         layout.addWidget(self.canvas, 1)
 
@@ -101,7 +107,7 @@ class PreviewBox(QGroupBox):
         layout.addLayout(ctrl)
 
         self.lbl_info = QLabel("0 帧")
-        self.lbl_info.setStyleSheet("color: #666666;")
+        self.lbl_info.setStyleSheet("color: #a08cb0;")
         layout.addWidget(self.lbl_info)
 
         self.timer = QTimer(self)
