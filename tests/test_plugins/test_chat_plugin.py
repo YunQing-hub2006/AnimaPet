@@ -199,6 +199,35 @@ def test_history_import_merge_and_overwrite(tmp_path, monkeypatch):
     assert store.conv_id == 2
 
 
+def test_history_import_merge_dedups_within_incoming(tmp_path, monkeypatch):
+    """合并导入: 导入文件自己内部的重复也要去掉。
+
+    旧实现只拿现有记录建一次去重集合且不回写, 导入文件里有两条一模一样的
+    消息时会整份带进来(同一份备份被合并两次就会看到消息翻倍)。
+    """
+    monkeypatch.setattr(jsonio, "_BASE", str(tmp_path))
+    d = tmp_path / "data" / "characters" / "card.ying"
+    d.mkdir(parents=True)
+
+    store = HistoryStore(str(d), "card.ying")
+    store.append("user", "已有消息")
+    store.entries[0]["ts"] = "08-28 10:00"
+    store.save()
+
+    src = HistoryStore(str(tmp_path / "src"), "card.ying")
+    for _ in range(3):                       # 同一条消息重复三次
+        src.append("user", "重复消息")
+        src.entries[-1]["ts"] = "08-28 11:00"
+    src.append("user", "另一条")
+    src.entries[-1]["ts"] = "08-28 11:01"
+    backup = str(tmp_path / "dup.json")
+    src.export_json(backup)
+
+    n = store.import_json(backup, "merge")
+    assert n == 2, "3 条重复只应并入 1 条, 加上不重复的那条共 2 条"
+    assert [m["content"] for m in store.entries] == ["已有消息", "重复消息", "另一条"]
+
+
 # ---------------------------------------------------------------------
 # 功能模组集成(受总管理器托管)
 # ---------------------------------------------------------------------

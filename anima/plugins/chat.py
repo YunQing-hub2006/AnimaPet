@@ -168,14 +168,18 @@ class HistoryStore:
             raise ValueError("聊天记录 JSON 不合法: %s" % e) from e
         incoming = self._sanitize([m.model_dump() for m in model.messages])
         if mode == "merge":
-            existing = {(m.get("ts"), m.get("role"), m.get("content"))
-                        for m in self.entries}
+            seen = {(m.get("ts"), m.get("role"), m.get("content"))
+                    for m in self.entries}
             shift = max([int(m.get("conv", 1)) for m in self.entries] or [0])
             conv_map = {}          # 导入会话号 → 顺延后的紧凑会话号(不留空洞)
             added = []
             for m in incoming:
-                if (m.get("ts"), m.get("role"), m.get("content")) in existing:
+                key = (m.get("ts"), m.get("role"), m.get("content"))
+                if key in seen:
                     continue
+                # 加进 seen 而不是只比对现有: 导入文件自己内部有重复时,
+                # 第二条以后也要跳过(旧实现只看现有记录, 重复会被整份带进来)
+                seen.add(key)
                 old_conv = int(m.get("conv", 1))
                 if old_conv not in conv_map:
                     conv_map[old_conv] = shift + len(conv_map) + 1

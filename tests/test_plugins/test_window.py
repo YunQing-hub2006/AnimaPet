@@ -168,3 +168,41 @@ def test_bubble_typing_and_theme(env, qapp):
     b.apply_theme({"bubble_bg": "#000000"})   # 皮肤键合并, 不崩
     b.close()
     win.close()
+
+
+def test_dialog_style_follows_current_skin(qapp):
+    """对话框样式跟随当前皮肤, 不再写死默认主题。
+
+    早先 apply_dialog_style 里是 merge_theme({}), 于是换了浅色皮肤后主窗口 /
+    气泡 / 聊天面板都变浅了, 四个对话框还是深紫。
+    """
+    from PyQt6.QtWidgets import QDialog
+
+    from anima.utils import theme
+    from anima.window.dialogs.common import apply_dialog_style
+
+    light = {"bg_window": "#fff5f8", "fg_panel": "#5a3a48", "accent": "#e07a9e"}
+
+    class _Skin:
+        def __init__(self, t):
+            self.theme = t
+
+    class _Host:
+        def __init__(self, skin):
+            self.registry = type(
+                "R", (), {"ui": staticmethod(lambda mid: skin)})()
+            self.config = type("C", (), {"get": staticmethod(lambda k, d=None: "ui.x")})()
+
+    dlg = QDialog()
+    dlg.mm = _Host(_Skin(light))
+    apply_dialog_style(dlg)
+    qss = dlg.styleSheet()
+
+    merged = theme.merge_theme(light)
+    assert merged["bg_window"] in qss          # 用上了皮肤的底色
+    assert theme.DEFAULT_THEME["fg_panel"] not in qss   # 没残留默认前景色
+
+    # 拿不到 host 时回落默认主题, 行为跟以前一致
+    plain = QDialog()
+    apply_dialog_style(plain)
+    assert plain.styleSheet() == theme.dialog_qss(theme.merge_theme({}))

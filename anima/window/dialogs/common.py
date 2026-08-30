@@ -56,9 +56,34 @@ def wait_rescan(fut):
 # 统一样式
 # ----------------------------------------------------------------------
 
-def apply_dialog_style(dlg):
-    """给对话框套全局统一暗色主题(替代各处自带的 WHITE_STYLE)。"""
-    dlg.setStyleSheet(theme.dialog_qss(theme.merge_theme({})))
+def _skin_theme_from(dlg):
+    """从对话框持有的总管理器读当前皮肤主题; 拿不到就返回空(回落默认主题)。"""
+    host = getattr(dlg, "mm", None) or getattr(dlg, "host", None)
+    registry = getattr(host, "registry", None)
+    config = getattr(host, "config", None)
+    if registry is None or config is None:
+        return {}
+    try:
+        skin = registry.ui(config.get("mods.ui", ""))
+    except Exception as e:          # 皮肤模组损坏不该挡住对话框打开
+        _log.warning("dialog skin lookup failed: %s", e)
+        return {}
+    return getattr(skin, "theme", None) or {}
+
+
+def apply_dialog_style(dlg, theme_dict=None):
+    """给对话框套当前皮肤主题(替代各处自带的 WHITE_STYLE)。
+
+    ``theme_dict`` 省略时自动按 ``mods.ui`` 取当前皮肤 —— 早先这里写死
+    ``merge_theme({})`` 只拿默认主题, 于是换了浅色皮肤后主窗口/气泡/聊天面板
+    都跟着变浅, 四个对话框还是深紫, 跟主题系统"全局一致"的契约对不上。
+
+    对话框是临时窗口, 构造时取一次就够; 换皮肤后重开即生效(主窗口是常驻的,
+    由 PetWindow._apply_skin 走热重载)。
+    """
+    if theme_dict is None:
+        theme_dict = _skin_theme_from(dlg)
+    dlg.setStyleSheet(theme.dialog_qss(theme.merge_theme(theme_dict or {})))
 
 
 # ----------------------------------------------------------------------
@@ -118,17 +143,25 @@ def extract_gif_frames(src_gif, frames_dir):
 
 
 def import_gif(src_gif):
-    """把 GIF 导入为公共素材库 anim.* 模组(自动解帧), 返回 (new_id, mod_dir)。"""
+    """把 GIF 导入为公共素材库 anim.* 模组(自动解帧), 返回 (new_id, mod_dir)。
+
+    解帧或写 manifest 失败就把刚建好的目录整个删掉。早先失败时目录留在盘上,
+    而 loader 扫到没有 manifest 的目录只是 continue 跳过(不报错也不显示),
+    于是每重试一次就多一个垃圾目录, 重名还会一路跳到 _2/_3。
+    """
     stem = os.path.splitext(os.path.basename(src_gif))[0]
     base = re.sub(r"[^\w一-鿿-]+", "_", stem).strip("_") or "anim"
     mid, d = _alloc_library_anim_dir(base)
-    frames_dir = os.path.join(d, "frames")
-    n, fps = extract_gif_frames(src_gif, frames_dir)
-    jsonio.save(os.path.join(d, "manifest.json"), {
-        "id": mid, "type": "anim", "version": "1.0.0",
-        "name": os.path.basename(d)[len("anim."):], "fps": fps, "frames_dir": "frames",
-        "description": "由 GIF 导入的动画(%d 帧, 公共素材库)" % n,
-    })
+    try:
+        n, fps = extract_gif_frames(src_gif, os.path.join(d, "frames"))
+        jsonio.save(os.path.join(d, "manifest.json"), {
+            "id": mid, "type": "anim", "version": "1.0.0",
+            "name": os.path.basename(d)[len("anim."):], "fps": fps, "frames_dir": "frames",
+            "description": "由 GIF 导入的动画(%d 帧, 公共素材库)" % n,
+        })
+    except Exception:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
     return mid, d
 
 
@@ -140,8 +173,8 @@ def _alloc_library_anim_dir(base):
     name = base
     i = 1
     while os.path.isdir(os.path.join(paths.MODS_DIR, "anim." + name)):
+        name = "%s_%d" % (base, i)   # 先改名再自增, 否则重名会跳过 _1 直接叫 _2
         i += 1
-        name = "%s_%d" % (base, i)
     mid = "anim." + name
     d = os.path.join(paths.MODS_DIR, mid)
     os.makedirs(os.path.join(d, "frames"), exist_ok=True)

@@ -38,32 +38,48 @@ def _alloc_card_anim_dir(card_dir, base):
     name = base
     i = 1
     while os.path.isdir(os.path.join(card_dir, "anims", name)):
+        name = "%s_%d" % (base, i)   # 先改名再自增, 否则重名会跳过 _1 直接叫 _2
         i += 1
-        name = "%s_%d" % (base, i)
     os.makedirs(os.path.join(card_dir, "anims", name, "frames"), exist_ok=True)
     return name
 
 
 def import_anim_to_card(card_dir, src):
-    """PNG 文件夹 → 角色卡内 anims/<短名>/frames。返回短名。"""
+    """PNG 文件夹 → 角色卡内 anims/<短名>/frames。返回短名。
+
+    拷贝中途失败要把刚建的目录删掉: 它落在用户角色卡里, 留着会在动画页签
+    出现一套残缺动画。
+    """
     files = _pngs(src)
     if not files:
         raise ValueError("所选文件夹里没有 PNG 文件。")
     base = re.sub(r"[^\w一-鿿-]+", "_", os.path.basename(src)).strip("_").lower() or "anim"
     name = _alloc_card_anim_dir(card_dir, base)
-    frames_dir = os.path.join(card_dir, "anims", name, "frames")
-    for f in files:
-        shutil.copy2(os.path.join(src, f), os.path.join(frames_dir, f))
+    anim_dir = os.path.join(card_dir, "anims", name)
+    try:
+        for f in files:
+            shutil.copy2(os.path.join(src, f), os.path.join(anim_dir, "frames", f))
+    except Exception:
+        shutil.rmtree(anim_dir, ignore_errors=True)
+        raise
     return name
 
 
 def import_gif_to_card(card_dir, src_gif):
-    """GIF → 角色卡内 anims/<短名>/frames(自动解帧)。返回短名。"""
+    """GIF → 角色卡内 anims/<短名>/frames(自动解帧)。返回短名。
+
+    解帧失败同样要删干净 —— 否则卡里会多出一套空动画, 下次导入同名 GIF
+    还会跳到 _2。
+    """
     stem = os.path.splitext(os.path.basename(src_gif))[0]
     base = re.sub(r"[^\w一-鿿-]+", "_", stem).strip("_").lower() or "anim"
     name = _alloc_card_anim_dir(card_dir, base)
-    frames_dir = os.path.join(card_dir, "anims", name, "frames")
-    extract_gif_frames(src_gif, frames_dir)
+    anim_dir = os.path.join(card_dir, "anims", name)
+    try:
+        extract_gif_frames(src_gif, os.path.join(anim_dir, "frames"))
+    except Exception:
+        shutil.rmtree(anim_dir, ignore_errors=True)
+        raise
     return name
 
 
