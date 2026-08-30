@@ -1,7 +1,7 @@
-# AnimaPet 开发会话 · 工作交接记录（第 11 版 · 含 08-28/08-30 两批未提交改动）
+# AnimaPet 开发会话 · 工作交接记录（第 12 版 · 两批改动已提交 + 审查问题已修复）
 
-> **会话日期**: 2026-08-30（性能/体积优化轮 + 未提交改动盘点）
-> **上次提交**: `4f5b43d`（2026-08-23, docs: 项目结项报告）— **此后再无提交**
+> **会话日期**: 2026-08-30（性能/体积优化轮 + 未提交改动盘点 + 审查问题修复）
+> **上次提交**: `8a56b04`（2026-08-30）— **工作区干净**
 > **项目**: AnimaPet -- 基于 Anima 内核 v1.1.1 的桌面宠物元框架
 > **位置**: `E:\Zcode-work\AnimaPet`（git 已初始化，按里程碑提交）
 > **上游内核**: `E:\Zcode-work\Anima-v1.1`（v1.1.1 冻结，**只读**，勿改）
@@ -11,17 +11,17 @@
 
 ## ⚠️ 最重要的一句话（接手者先读）
 
-**Phase 0-5 早已完成（tag v1.0），但 `4f5b43d` 之后还压着两批未提交的工作区改动：
-08-28 的「UI 重构 + 新手功能轮」和 08-30 的「性能/体积优化轮」。**
-代码是好的、测试全绿，但**一行都没提交** —— 接手第一件事是把它们分批提交掉，
-别在这基础上继续堆新改动。
+**Phase 0-5 早已完成（tag v1.0）。2026-08-30 这一天把 `4f5b43d` 之后积压的两批
+工作区改动全部提交，并修掉了盘点时审查出的 4 个 🟡 问题。工作区是干净的。**
 
-| 批次 | 日期 | 主题 | 规模 | 状态 |
-|---|---|---|---|---|
-| A | 2026-08-28 | UI/可维护性重构 + 新手四功能（皮肤工坊/GIF导入/规则可视化/历史合并导入） | 18 改 + 5 新增 | 未提交，**已审查，见 §十一** |
-| B | 2026-08-30 | 内存/磁盘优化 + UI 改版 | 8 改 + 2 新增 + 236 素材 | 未提交，测试全绿 |
+| 提交 | 内容 |
+|---|---|
+| `377e878` | 代码与测试（08-28 批次 A + 08-30 批次 B 的 Python 部分，两批在 `animator.py`/`chat_panel.py` 里纠缠，无法按文件拆开） |
+| `caae6b0` | 素材降到最长边 512（−98MB）、打包剔除 32MB 冗余、新增瘦身工具、文档 |
+| `48c67b0` | 🟡1 行为规则编辑器不再静默丢字段（`after_ms`/`if`/`on` 列表/高级动作） |
+| `8a56b04` | 🟡2 对话框跟随皮肤；🟡3 导入失败回滚目录；🟡4 合并导入去重文件内重复 |
 
-详见 §二。
+**测试 268 passed。** 剩下的只有用户真机冒烟（§五）。
 
 ---
 
@@ -75,82 +75,72 @@ JSON 导入导出）、`stream` 配置预留。
 ### 当前测试状态（2026-08-30 复核）
 
 ```text
-./.venv/Scripts/python.exe -m pytest tests/ -q   ->  263 passed（全绿）
+./.venv/Scripts/python.exe -m pytest tests/ -q   ->  268 passed（全绿）
 check_kernel_rules.py                            ->  840 行、纯标准库（未动）
 dist/AnimaPet/AnimaPet.exe 冒烟                  ->  启动正常，工作集 87.6MB
 ```
 
-> **测试基线是 263，不是 254。** 08-28 功能轮新增 9 个（GIF 4 / 皮肤工坊 3 /
-> 聊天合并导入 1 / 行为规则 1）；08-30 优化轮未增删用例，只把
-> `test_theme_merge_ignores_non_string` 的一条死色值断言改成"回退到默认值"。
+> **测试基线是 268，不是 254。** 254 → 263 是 08-28 功能轮（GIF 4 / 皮肤工坊 3 /
+> 聊天合并导入 1 / 行为规则 1）；263 → 264 是 08-30 补的行为规则往返保真测试；
+> 264 → 268 是 08-30 修 4 个 🟡 时补的（GIF 回滚 2 / 合并去重 1 / 对话框皮肤 1）。
+> 另：`test_theme_merge_ignores_non_string` 的死色值断言已改为"回退到默认值"。
 
 ---
 
 ## 二、提交与未提交状态
 
-### 已提交（最后一次 `4f5b43d`，2026-08-23）
+### 最近提交（2026-08-30 全部落地，工作区干净）
 
 ```text
-ab239e9 chore: 内核升级 v1.1.0 -> v1.1.1（失败回滚/重启安全）
-6617f5e feat: Phase 3 角色卡模型层——Pydantic 模型/schema/.chara 包/按角色隔离
-380b8df feat: Phase 3 角色卡编辑器 GUI + 测试 + .chara 格式文档
-4f5b43d docs: 项目结项报告 PROJECT_STATUS.md   <-- HEAD
+4f5b43d docs: 项目结项报告 PROJECT_STATUS.md       （2026-08-23, 之前的 HEAD）
+377e878 feat+refactor+perf: UI 统一主题/对话框去重/新手四功能 + 内存与解码优化
+caae6b0 perf: 素材降至最长边 512；打包剔除 32MB 冗余；补瘦身工具与文档
+48c67b0 fix: 行为规则编辑器不再静默丢字段（after_ms / if / on 列表 / 高级动作）
+8a56b04 fix: 对话框跟随皮肤；导入失败回滚目录；合并导入去重文件内重复   <-- HEAD
 ```
 
-### 未提交 · 批次 A（2026-08-28，两轮）
+### 关于切分：为什么没按"批次 A / 批次 B"拆成两个提交
 
-轮 1「UI/可维护性重构」+ 轮 2「新手功能轮」，文档见 `docs/PROJECT_STATUS.md` §9/§10。
+原计划按批次拆，但两批在 **`anima/window/animator.py` 和 `anima/window/chat_panel.py`**
+两个文件里纠缠（A 改定时器与批量渲染，B 改解码即缩放与气泡 HTML），而 git 的最小
+粒度是文件 —— 强行拆开必然产出一个"编译不过或测试挂掉"的中间提交。
+
+所以改成按**能否独立通过测试**切分：
+- `377e878` 全部 Python 代码与测试（两批合一，提交后测试通过）
+- `caae6b0` 素材 + 打包 + 文档（已确认无测试断言素材尺寸或 build.spec 内容）
+
+### 各提交的内容索引
+
+**`377e878` 代码与测试**
 
 ```text
- M anima/plugins/chat.py                    历史导入三选(合并/覆盖/取消)
- M anima/window/dialogs/charcard/__init__.py
- M anima/window/dialogs/charcard/assets.py  GIF 导入到卡内
- M anima/window/dialogs/charcard/dialog.py  行为规则可视化编辑器
- M anima/window/dialogs/charcard/wizard.py
- M anima/window/dialogs/modmanager.py       新建模组对话框合并基类
- M anima/window/dialogs/settings.py         两步向导 + 温度滑条
- M anima/window/pet_window.py               菜单构建拆 _populate_menu
- M anima/window/tray.py
- M docs/PROJECT_STATUS.md                   §9/§10 两轮记录
- M docs/user_guide.md
- M tests/integration/test_full_stack.py     真实 mods 27->28, features 8->9
- M tests/test_plugins/test_charcard.py
- M tests/test_plugins/test_chat_plugin.py
- M tests/test_plugins/test_module_manager.py
-?? anima/window/dialogs/common.py           新增: wait_fire/动画导入/GIF 解帧 收拢
-?? anima/window/dialogs/skinmaker.py        新增: 皮肤工坊
-?? mods/feature.skinmaker/                  新增: 皮肤工坊功能模组
-?? tests/test_plugins/test_gif_import.py    新增 4 例
-?? tests/test_plugins/test_skinmaker.py     新增 3 例
+anima/plugins/chat.py            历史导入三选(合并/覆盖/取消)
+anima/window/dialogs/charcard/   GIF 导入到卡内 + 行为规则可视化编辑器
+anima/window/dialogs/common.py   [新增] wait_fire/动画导入/GIF 解帧 收拢
+anima/window/dialogs/skinmaker.py  [新增] 皮肤工坊
+anima/window/dialogs/modmanager.py  新建模组对话框合并基类
+anima/window/dialogs/settings.py    两步向导 + 温度滑条
+anima/window/{pet_window,tray}.py   菜单拆 _populate_menu 等清理
+anima/mods/loader.py             load_scaled_pixmap + 全局帧 LRU（内存）
+anima/plugins/loader.py          scan() 处清帧缓存
+anima/window/animator.py         emote 改解码即缩放 + 定时器按需启停
+anima/window/bubble.py           气泡跟随主题字体
+anima/window/chat_panel.py       气泡 HTML 走 theme.chat_bubble_html + 名字着色
+anima/utils/theme.py             重写: 推导键/保色相提亮/亮度自适应描边
+mods/feature.skinmaker/          [新增] 皮肤工坊功能模组
+tests/                           263 个用例 + test_gif_import/test_skinmaker 新增
+.gitignore                       补 .workbuddy/
 ```
 
-### 未提交 · 批次 B（2026-08-30，性能/体积 + UI 改版）
+**`caae6b0` 素材 / 打包 / 文档**
 
 ```text
- M anima/mods/loader.py        load_scaled_pixmap + 全局帧 LRU（内存）
- M anima/plugins/loader.py     scan() 处清帧缓存
- M anima/window/animator.py    emote 改解码即缩放
- M anima/window/bubble.py      气泡跟随主题字体
- M anima/window/chat_panel.py  气泡 HTML 走 theme.chat_bubble_html + 名字着色
- M anima/utils/theme.py        重写: 推导键/保色相提亮/亮度自适应描边
- M build.spec                  剔除 opengl32sw/Qt6Pdf/Qt6Network/非 zh_CN .qm
- M tests/test_utils.py         1 例断言改"回退到默认值"
- M mods/card.ying/**/*.png     236 张降到最长边 512（187MB -> 89MB）
-?? tools/optimize_assets.py    新增: 素材瘦身工具（默认预览, --apply 写盘）
-?? docs/ui-preview.png         三套皮肤离屏渲染预览
+mods/card.ying/**/*.png  236 张降到最长边 512（187MB -> 89MB，是修改不是删除，
+                         全部在 git 里，git checkout -- mods/ 可完整回滚）
+build.spec               剔除 opengl32sw/Qt6Pdf/Qt6Network/非 zh_CN .qm（−32MB）
+tools/optimize_assets.py  [新增] 素材瘦身工具（默认预览, --apply 写盘）
+docs/                    PROJECT_STATUS §9/§10、user_guide、ui-preview.png
 ```
-
-> `mods/card.ying` 的 236 张 PNG 是**修改**而非删除，全部在 git 里，
-> `git checkout -- mods/` 可完整回滚到压缩前。
-
-### 建议的提交切分
-
-两批互相独立，**分两个 commit，别混**：
-
-1. `refactor+feat: UI 统一暗色主题/对话框去重 + 皮肤工坊/GIF导入/规则可视化`（批次 A）
-2. `perf: 帧解码即缩放 + 全局 LRU；素材降到 512；打包剔除 32MB 冗余`（批次 B，含素材）
-
-`.gitignore` 已补 `.workbuddy/`（会话记忆目录，之前会被误提交）。
 
 ---
 
@@ -178,6 +168,11 @@ ab239e9 chore: 内核升级 v1.1.0 -> v1.1.1（失败回滚/重启安全）
    计算结果，否则会躺着永远用不到的死值
    （`tests/test_utils.py::test_theme_merge_none_safe` 守这条）。
 9. **断言配色时断言"回退到默认值"，不要写死色值**（08-30）：换配色时不该动测试。
+10. **可视化编辑器必须保证往返保真**（08-30）：表单只读得懂一部分字段时，读不懂的
+    要原样带回，不能整体重建 dict。规则/动作的 JSON 是用户能手写的，编辑器只是
+    它的一个视图 —— 见过即必须保留。新增的「原样保留」分支优于"静默降级"。
+11. **对话框等临时窗口构造时取一次当前皮肤即可**（08-30），不必做热更新；
+    常驻窗口（`PetWindow`）才需要 `_apply_skin` 跟着热重载走。
 
 ---
 
@@ -221,10 +216,8 @@ E:\Zcode-work\AnimaPet\
 
 ## 五、下一步
 
-### 第 0 步（**新增，最优先**）：把两批未提交改动提交掉
-
-代码全绿但不提交 = 换台机器就没了。按 §二 的切分建议分两个 commit。
-提交前**务必确认** `mods/card.ying` 的 236 个 PNG 变更是想要的（体积 187→89MB）。
+> **第 0 步（提交）和第 7 步（修 🟡）已于 2026-08-30 完成**，见 §二 的提交记录。
+> 现在只剩用户真机冒烟。
 
 ### 第 5 步（真机冒烟，用户环境）：按 docs/RELEASE_CHECKLIST.md 逐项验证；
 确认稳定后删除 `E:\Zcode-work\Anima-core-old\core` 归档。
@@ -236,10 +229,15 @@ E:\Zcode-work\AnimaPet\
 > 08-30 已重新打包（`dist/AnimaPet`，155MB）并冒烟通过，可直接拿去真机验证。
 > 若冒烟发现问题，回来改代码后补测试并重新提交。
 
-### 第 7 步（待办）：修 §十一 列出的 🟡 项
+### 冒烟时请重点看这几处（都是本次动过、且改了行为的）
 
-批次 A 审查出 4 个"行为不对但不致命"的问题，其中**行为规则编辑器会静默丢字段**
-（`after_ms`/`if`/非三选动作）是真会丢数据的，建议提交完立刻修。
+| 位置 | 看什么 |
+|---|---|
+| 角色卡管理器·行为页签 | 改一条带 `after_ms` 的动作，保存后 JSON 里延时还在 |
+| 设置/模组管理/角色卡/皮肤工坊 四个对话框 | 切到「樱粉」皮肤后对话框应随之变浅（不再是深紫） |
+| 模组管理 → 导入 GIF 动画 | 故意导一个坏 GIF，失败后 `mods/` 下不留 `anim.*` 空目录 |
+| 聊天 → 备份▾ → 从 JSON 恢复（合并） | 同一份备份连合两次，消息不该翻倍 |
+| 桌宠本体 | 切换尺寸/皮肤、播放表情动画都正常（帧缓存 LRU 新增） |
 
 ---
 
@@ -321,6 +319,23 @@ E:\Zcode-work\AnimaPet\
   `--distpath` 到暂存目录验证后再替换。另外本仓库的 `mv` 有时会撞上
   Permission denied（安全删除机制拦截），改用 `cp -r` 再删源目录即可。
 
+### 2026-08-30 修复轮新增
+
+- **照着"观察到的行为"写断言，会把 bug 固化成契约**：`test_gif_import` 里
+  `assert mid2 == "anim.dance_2"` 写的就是 bug 本身（重名序号先自增，跳过 `_1`）。
+  修完序号后这条测试挂了 —— 这是好事，说明它确实锁住了行为，但方向锁反了。
+  **写断言时问一句"这是期望的行为，还是当前的实现？"**
+- **补完测试必须验证它能抓到 bug**：临时把修复还原掉跑一遍，确认测试真的失败。
+  本轮 5 条新测试全部这么验过（还原后分别报 `KeyError: 'after_ms'`、
+  `['anim.broken'] == []`、`4 == 2`、QSS 残留默认前景色）。测试在新旧代码下
+  都通过 = 没测到东西。
+- **验证主题键名别想当然**：我第一次写对话框皮肤验证脚本时用了 `text` 这个键，
+  看着合理但项目里根本没这个键（真实皮肤用 `fg_panel`/`fg_browser`），
+  结果 QSS 出现浅底浅字 `#fff5f8` + `#ece2f7`，差点误判成修复有 bug。
+  验证前先 `cat mods/ui.sakura/manifest.json` 看真实皮肤定义了哪些键。
+- **git 拆提交的最小粒度是文件**：两批改动纠缠在同一文件时，与其硬拆出一个
+  测试挂掉的中间提交，不如按"能否独立通过测试"重新切分。
+
 ---
 
 ## 九、环境与复跑
@@ -391,9 +406,9 @@ cd E:\Zcode-work\AnimaPet
 `load_scaled_pixmap` + 帧 LRU 与 Animator 按需启停定时器无冲突，且定时器不存在卡死路径
 （`_decode_frames` 有 `_fallback_disc` 兜底，永不返回空表）。
 
-**🟡 该修（4 项，建议提交完立刻处理）**
+**🟡 该修（4 项）—— 已于 2026-08-30 全部修完，见 `48c67b0` 与 `8a56b04`**
 
-1. **行为规则编辑器静默丢字段**（`charcard/dialog.py`，**真会丢数据**）
+1. **✅ 已修** 行为规则编辑器静默丢字段（`charcard/dialog.py`，**真会丢数据**）
    - `_action_from_editor()` L820-829 只产出单键 dict，`_update_action_from_editor()` L848
      整体替换 → 现有 6 条规则中 3 条带 `after_ms`（如 `{"emote":"angry","after_ms":200}`），
      一按「更新选中」就丢。
@@ -404,16 +419,33 @@ cd E:\Zcode-work\AnimaPet
    - `_on_action_selected` L864/L868 `setCurrentIndex(max(0, idx))`：id 不在下拉时静默
      选中第 0 项，一按「更新选中」就换成别的动作；`state_set`/`state_inc`/`emit`
      （`actions.py:82-84`）等非三选动作会走空分支，同样被误替换。
-2. **四个对话框不跟随皮肤**：`dialogs/common.py:59-61` `apply_dialog_style` 硬编码
-   `merge_theme({})`。08-30 让皮肤真正生效后，浅色皮肤下主窗口/气泡/聊天面板变浅，
-   对话框仍深紫 —— 与主题系统"全局一致"的契约矛盾。
-3. **GIF 导入失败留孤儿目录**：`common.py::import_gif` 先建 `mods/anim.X/frames`，
-   `extract_gif_frames` 抛错无回滚；`loader.py:274` 对无 manifest 目录 `continue` 静默
-   跳过 → 目录永久残留，下次同名导入跳到 `_2`（且 `_alloc_library_anim_dir` L140-144
-   计数器先自增，`_1` 被跳过）。
-4. **历史合并导入只比现有**：`chat.py:170-181` 的 `existing` 集合只在循环外由
-   `self.entries` 建一次，`added` 不回写进去 → incoming **内部**重复的
-   `(ts, role, content)` 不去重。
+2. **✅ 已修** 四个对话框不跟随皮肤：`dialogs/common.py` 的 `apply_dialog_style`
+   硬编码 `merge_theme({})`。08-30 让皮肤真正生效后，浅色皮肤下主窗口/气泡/聊天
+   面板变浅，对话框仍深紫 —— 与主题系统"全局一致"的契约矛盾。
+   现按 `mods.ui` 取当前皮肤（拿不到 host 时回落默认，行为不变）；已用真实樱粉
+   皮肤离屏验证：底色 `#fff5f8`、文字 `#4a3038`，无残留默认色。
+3. **✅ 已修** GIF 导入失败留孤儿目录：`import_gif` / `import_gif_to_card` /
+   `import_anim_to_card` 先建目录再写内容，中途抛错不回滚；`loader.py:274-275`
+   对无 manifest 目录 `continue` 静默跳过 → 目录永久残留（卡内更糟，会显示成一套
+   空动画）。现三处都包 try/except，失败即 `rmtree` 再抛出。顺带修了重名序号
+   先自增导致 `_1` 永远用不上的问题。
+4. **✅ 已修** 历史合并导入只比现有：`chat.py` 的去重集合只由现有记录建一次且不
+   回写 → incoming **内部**重复不去重（同一份备份连合两次消息翻倍）。现边遍历边
+   加入 `seen`。
+
+**新增/修正的测试（共 5 例，均已在旧逻辑下验证过会失败）**
+
+| 测试 | 验证方式 |
+|---|---|
+| `test_behavior_editor_roundtrip_preserves_fields` | 还原旧逻辑后 `KeyError: 'after_ms'`、`"['pet.petted', 'pet.drag_started']"` |
+| `test_import_gif_rolls_back_dir_on_failure` | 还原后 `assert ['anim.broken'] == []` |
+| `test_import_gif_to_card_rolls_back_on_failure` | 同上（卡内目录） |
+| `test_history_import_merge_dedups_within_incoming` | 还原后 `assert 4 == 2` |
+| `test_dialog_style_follows_current_skin` | QSS 中不含默认前景色 |
+
+另**修正了 2 例原有断言**：`test_gif_import` 把"重名跳到 `_2`"这个 bug 当成了
+期望值，现按正确行为断言 `_1`（并补一句 `_2` 确认连号）—— 这类"照着观察到的
+行为写断言"的测试最危险，会把 bug 固化成契约。
 
 **🟢 建议（5 项）**：`assets.py` 残留未用 import `jsonio`/`paths`；
 `skinmaker.py:105,224` 两处 `setdefault("bubble_bg",...)` 是死代码（merge_theme 必有此键）；
@@ -430,4 +462,21 @@ cd E:\Zcode-work\AnimaPet
 `test_skinmaker.py` 未测 id 路径安全、未断言 `_COLOR_FIELDS` 键均为合法 theme 键；
 `_NewModDialogBase` 两子类的 PREFIX/冲突检查无独立用例。
 
-> **接手者从 Phase 5 剩余项（打包/tag）与真机冒烟继续；代码已带 Phase 3/4/5 部分，重启后可见。**
+### 11.4 🟢 建议项（未修，不急）
+
+`assets.py` 残留未用 import `jsonio`/`paths`；`skinmaker.py:105,224` 两处
+`setdefault("bubble_bg",...)` 是死代码（`merge_theme` 必有此键）；取色器
+`col.name()` 会把 `rgba(...,230)` 转不透明 hex，头顶气泡失半透明；
+`common.py:114` GIF 截断只在日志告警、用户无感知；皮肤 id `a..`/`a.b..` 能通过
+校验（Windows 静默剥尾点 → 实际目录 `ui.a` 但 config 记 `ui.a..`，皮肤不生效；
+`../../evil`、`a/../b` 等穿越已正确挡住）；`animator.py::play_frames` 在
+`back_to_idle` 不清空 → 播过一次后"按需启停"永久失效（不影响功能，只是省电退化）。
+
+另有几处控件还在自己写死 QSS（如 `charcard/assets.py` 的 `PreviewBox` 硬编码
+`#1d1526`/`#b04060`），与 §六.5「样式统一走 theme.py 工厂」相悖 —— 换皮肤时这些
+控件不会跟着变，建议一并收拢。
+
+**测试缺口（未补）**：`test_gif_import.py` 只用单帧 1×1 GIF，`1 <= fps <= 30`
+几乎恒真 → 平均延时折算与 600 帧上限两个分支仍没测到；`test_skinmaker.py`
+未测 id 路径安全、未断言 `_COLOR_FIELDS` 键均为合法 theme 键；
+`_NewModDialogBase` 两子类的 PREFIX/冲突检查无独立用例。
