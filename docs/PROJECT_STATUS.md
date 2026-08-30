@@ -1,6 +1,7 @@
 # AnimaPet 项目结项报告
 
-> 记录时间：2026-08-23
+> 记录时间：2026-08-23（v1.0 收尾存档）
+> 最近更新：2026-08-28（结项后追加两轮：§9 UI/可维护性重构、§10 新手功能轮）
 > 项目定位：基于 Anima 内核 v1.1.1 的 Windows 桌面宠物元框架（个人项目，已按当前阶段收尾存档）
 > 结论：**代码与测试已完成到 v1.0，但未经真机持续使用验证，项目按“暂缓/存档”处理。**
 
@@ -148,3 +149,70 @@ run.bat
 AnimaPet 完成了“从 YingPet 单机项目 → 插件化桌面宠物元框架”的迁移，
 代码质量与自动化测试完整，但作为产品缺少真实用户验证；当前以 v1.0 存档，
 源代码、格式规范、开发文档与打包产物均已就位。
+
+---
+
+## 9. 附录：2026-08-28 UI/可维护性重构轮（结项后追加）
+
+> 触发原因：结项后复查发现 UI 层三类问题 —— ① 四个对话框各自维护一份白色
+> QSS，与主界面深紫配色割裂；② `wait_fire`/PNG 导入等逻辑存在 2~3 份拷贝；
+> ③ 聊天历史逐条渲染、动画定时器空转等性能问题。
+> 本轮**只动表现层与重复实现，不改任何行为契约**（事件名/信号/存储格式/插件接口全部不变）。
+
+### 9.1 改动清单
+
+| 类别 | 改动 | 涉及文件 |
+|---|---|---|
+| 主题统一 | `theme.py` 升级为主题设计系统：颜色单点定义 + `menu_qss()/dialog_qss()/panel_qss()` 样式工厂；四个对话框从白底换统一暗色主题 | `utils/theme.py`、`settings.py`、`modmanager.py`、`charcard/dialog.py`、`charcard/wizard.py` |
+| 去重 | 新建 `window/dialogs/common.py`：收拢 3 份 `wait_fire`/`wait_rescan` 与 2 份动画 PNG 导入；`charcard/__init__` 保留再导出兼容 | `dialogs/common.py`（新增）、`modmanager.py`、`charcard/*` |
+| 对话框合并 | modmanager 两个“新建模组”对话框合并为 `_NewModDialogBase` 基类（id 校验/冲突检查共用） | `modmanager.py` |
+| 聊天面板 | 工具栏重组（导出/导入收进“备份 ▾”菜单）；历史回放/搜索/会话浏览改批量渲染（一次文档重排）；空历史显示新手引导；消息 HTML 标记收进 ChatPanel，`plugins/chat.py` 只传数据；状态栏不再靠字符串切割拼装 | `window/chat_panel.py`、`plugins/chat.py` |
+| 设置对话框 | 改两步向导式（① 对话模型 ② 角色人设），字段带悬停说明，温度改 0~2 滑条 | `settings.py` |
+| 性能 | Animator 帧定时器按需启停（无可画帧不空转，表情/动画播放自动唤醒）；聊天面板 20+ 次 `setStyleSheet` 合并为 1 次 | `window/animator.py`、`chat_panel.py` |
+| 清理 | PetWindow 菜单构建拆出 `_populate_menu` 并走主题工厂；tray `_quit` 等小清理 | `pet_window.py`、`tray.py` |
+
+### 9.2 验证
+
+- 全量测试 **254 passed**（唯一测试改动：设置对话框温度字段改滑条后，
+  `test_settings_dialog_saves_config_and_char_prompt` 同步驱动 `sld_temp`）；
+- `python -m compileall` 全量通过；
+- 离屏实例化宠物窗口/聊天面板/设置/模组管理/角色卡管理器并截图检查，
+  布局与配色正常（offscreen 平台缺 CJK 字体，截图文字显示为方块属环境限制）；
+- 专项验证 `clicked(bool) → 零参信号 .emit` 与 `QMenu.addAction(text, slot)` 两条信号链安全。
+
+### 9.3 规模与状态
+
+- 13 个文件修改 + 1 个新增（`anima/window/dialogs/common.py`），+616/−535 行；
+- **改动停留在工作区，尚未提交**；真机冒烟（`docs/RELEASE_CHECKLIST.md`）在本轮之后仍待执行；
+- 皮肤模组（ui.*）兼容性：`merge_theme` 键集合未变，旧皮肤直接可用。
+
+---
+
+## 10. 附录：2026-08-28 功能轮（同日第二轮，面向新手）
+
+> 目标：不懂代码的用户也能完成四件以前要写 JSON/摆弄文件夹的事 —— 导入聊天记录、
+> 配行为规则、做皮肤、导 GIF 动画。测试 254 → **263 passed**（新增 9 个）。
+
+### 10.1 新功能
+
+| 功能 | 说明 | 落点 |
+|---|---|---|
+| 聊天记录导入增强 | 「备份▾ → 从 JSON 恢复」弹出三选：**合并(保留现有+按内容去重) / 覆盖现有 / 取消**；合并时会话号紧凑顺延不冲突 | `plugins/chat.py`（HistoryStore.import_json 加 mode 参数） |
+| 行为规则可视化编辑 | 角色卡管理器·行为页签重做：触发事件改**中文下拉**（摸头/拖动/闲置/深夜/聊天回复等 9 种 + 自定义），动作改为**搭建器**（说话/表情/动画三选一，台词下拉提示 `@idle.this.<段>`，支持增删/上移/下移），保存前强制"至少一个动作"并给新手话术提示；规则列表显示人话（“#1 被摸头 → 2 个动作·冷却5s”）；高级用户保留「编辑选中规则 JSON…」出口 | `window/dialogs/charcard/dialog.py` |
+| 皮肤工坊（新功能模组） | 右键菜单新入口：从默认/现有皮肤起步，19 个配色项分组取色，**实时预览**迷你聊天窗，保存生成 `mods/ui.<id>/`（与手写皮肤同构），可勾选"保存后立即换上" | `window/dialogs/skinmaker.py` + `mods/feature.skinmaker/`（manifest+plugin，仿 charcard 门面模式） |
+| GIF 导入 | GIF 自动解帧为 PNG 序列：模组管理「新建▾ → 导入 GIF 动画到素材库」、角色卡管理器「动画页签 → 导入 GIF 到本卡」「素材库页签 → 导入 GIF 到素材库」；用 QImageReader 解码（Qt 自带 GIF 支持，**零新依赖**），帧延时折算 fps（1~30），单 GIF 上限 600 帧 | `window/dialogs/common.py`（extract_gif_frames/import_gif）+ `charcard/assets.py`（import_gif_to_card） |
+
+### 10.2 测试
+
+- 更新：`test_full_stack`（真实 mods 计数 27→28、features 8→9）、
+  `test_charcard` 行为写回改驱动新表单；
+- 新增 9 个：`test_gif_import`(4：解帧/坏文件/素材库模组/卡内导入)、
+  `test_skinmaker`(3：保存并应用/冲突与非法 id 拒绝/现有皮肤起步)、
+  `test_chat_plugin` 合并导入(1)、`test_charcard` 自定义事件+JSON 出口(1)；
+- 离屏截图验证行为页与皮肤工坊布局正常。
+
+### 10.3 兼容性说明
+
+- `HistoryStore.import_json(path)` 旧调用（无 mode）等价 overwrite，行为不变；
+- 手写 ui.* 皮肤、behavior 规则 JSON 格式完全不变（可视化编辑只是它们的生成器）；
+- 真机冒烟清单仍待执行（§9.3 同）。
