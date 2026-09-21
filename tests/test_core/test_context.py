@@ -9,6 +9,7 @@ import pytest
 
 from anima.core.app import App
 from anima.core.context import Context
+from anima.core.exceptions import ServiceNotFoundError
 from anima.core.plugin import Plugin
 from tests.test_core.conftest import RecorderPlugin
 
@@ -48,6 +49,27 @@ def test_context_config_missing_section_gets_empty_dict():
     ctx = _make_ctx(app, RecorderPlugin("fresh"))
     assert ctx.config == {}
     assert app.config["plugins"]["fresh"] is ctx.config
+
+
+def test_context_config_tolerates_none_plugins_section():
+    """app.config["plugins"] 为 None（如 YAML 空节）时不崩溃。"""
+    app = App()
+    app.config["plugins"] = None  # type: ignore[assignment]
+
+    ctx = _make_ctx(app, RecorderPlugin("from-none"))
+    assert ctx.config == {}
+    assert app.config["plugins"] == {"from-none": {}}
+    assert app.config["plugins"]["from-none"] is ctx.config
+
+
+def test_context_config_replaces_non_dict_section():
+    """插件名下的配置切片不是 dict 时被替换为空 dict。"""
+    app = App()
+    app.config["plugins"]["broken"] = "not-a-dict"  # type: ignore[assignment]
+
+    ctx = _make_ctx(app, RecorderPlugin("broken"))
+    assert ctx.config == {}
+    assert app.config["plugins"]["broken"] is ctx.config
 
 
 def test_context_config_uses_existing_section():
@@ -205,3 +227,113 @@ def test_context_task_without_loop_raises(app: App):
     with pytest.raises(RuntimeError):
         ctx.task(coro)
     coro.close()
+
+
+# ---------- v1.2: use_strict 过渡接口（P2-2） ----------
+
+
+def test_context_use_strict_raises_when_missing(app: App):
+    """use_strict 未注册时抛 ServiceNotFoundError（不是返回 None）。"""
+    ctx = _make_ctx(app)
+    with pytest.raises(ServiceNotFoundError):
+        ctx.use_strict("nope")
+
+
+def test_context_use_strict_returns_service(app: App):
+    """use_strict 命中时返回实例，且不影响 use 的 default 语义。"""
+    ctx = _make_ctx(app, RecorderPlugin("provider"))
+    ctx.provide("svc", 42)
+
+    assert ctx.use_strict("svc") == 42
+    assert ctx.use("svc") == 42
+    assert ctx.use("missing") is None  # 冻结语义不变
+
+# ---------- v1.3: config_defaults（P2-4）/ interface（P3-4）/ on priority（P3-1） ----------
+
+
+class WithDefaults(Plugin):
+    """声明了两个配置默认值的插件。"""
+
+    name = "with-defaults"
+    config_defaults = {"level": 3, "mode": "auto"}
+
+    async def load(self, ctx: Context) -> None:
+        ...
+
+
+def test_config_defaults_fill_missing_keys(app: App):
+    """config_defaults 在 load 前填进 ctx.config。"""
+    ctx = _make_ctx(app, WithDefaults())
+    assert ctx.config == {"level": 3, "mode": "auto"}
+
+
+def test_config_defaults_do_not_override_explicit_config(app: App):
+    """显式配置优先，只补缺失的 key。"""
+    app.config["plugins"]["with-defaults"] = {"level": 9}
+    ctx = _make_ctx(app, WithDefaults())
+    assert ctx.config["level"] == 9
+    assert ctx.config["mode"] == "auto"
+
+
+def test_context_on_forwards_priority(app: App):
+    """ctx.on 的 priority 透传到总线。"""
+    ctx = _make_ctx(app, RecorderPlugin("prio"))
+    calls: list[str] = []
+    ctx.on("e", lambda d: calls.append("low"))
+    ctx.on("e", lambda d: calls.append("high"), priority=5)
+
+    ctx.emit("e")
+    assert calls == ["high", "low"]
+
+
+async def test_context_emit_collect_and_wait(app: App):
+    """Context 也有 emit_collect / emit_and_wait（插件不必去碰 bus）。"""
+    ctx = _make_ctx(app, RecorderPlugin("collector"))
+    done: list = []
+
+    async def handler(d):
+        done.append(d)
+        return "answer:" + str(d)
+
+    ctx.on("q", handler)
+    assert await ctx.emit_collect("q", 1) == ["answer:1"]
+    await ctx.emit_and_wait("q", 2)
+    assert done == [1, 2]
+
+
+def test_provide_with_interface_accepts_match(app: App):
+    """provide 的 interface 匹配时正常注册。"""
+    ctx = _make_ctx(app)
+    ctx.provide("counter", 5, interface=int)
+    assert ctx.use("counter") == 5
+
+
+def test_provide_with_interface_rejects_mismatch(app: App):
+    """provide 的 interface 不匹配时抛 TypeError，且不留半注册。"""
+    ctx = _make_ctx(app)
+    with pytest.raises(TypeError):
+        ctx.provide("counter", "5", interface=int)
+    assert app.registry.has("counter") is False
+
+
+def test_use_with_interface_rejects_mismatch(app: App):
+    """use 的 interface 不匹配时抛 ServiceNotFoundError（视作取不到该契约的服务）。"""
+    ctx = _make_ctx(app)
+    app.registry.register("svc", "not-an-int")
+    with pytest.raises(ServiceNotFoundError):
+        ctx.use("svc", interface=int)
+
+
+def test_use_with_interface_keeps_default_fallback(app: App):
+    """未注册时仍返回 default，interface 不参与判断。"""
+    ctx = _make_ctx(app)
+    assert ctx.use("missing", "fallback", interface=int) == "fallback"
+
+
+def test_use_strict_with_interface(app: App):
+    """use_strict 同样支持 interface 校验。"""
+    ctx = _make_ctx(app)
+    app.registry.register("svc", 7)
+    assert ctx.use_strict("svc", interface=int) == 7
+    with pytest.raises(ServiceNotFoundError):
+        ctx.use_strict("svc", interface=str)

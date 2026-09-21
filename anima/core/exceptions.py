@@ -35,10 +35,12 @@ class ServiceExistsError(AnimaError):
 
 
 class ServiceNotFoundError(AnimaError):
-    """预留：按严格模式获取未注册服务时抛出。
+    """按严格模式获取未注册的服务。
 
-    当前 :meth:`anima.core.registry.ServiceRegistry.use` 的契约是返回
-    default 而非抛异常，此异常保留给未来的严格获取接口。
+    v1.2 起由 :meth:`anima.core.registry.ServiceRegistry.use_strict`（及
+    :meth:`anima.core.context.Context.use_strict`）抛出。
+    `use()` 的"未注册返回 default"语义在 v1.x 内保持不变——收紧它属破坏性
+    变更，按 maintenance.md 第 6 节留待下一个主版本。
     """
 
 

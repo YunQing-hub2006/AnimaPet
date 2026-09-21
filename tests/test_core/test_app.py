@@ -7,7 +7,7 @@ import pytest
 from anima.core.app import App
 from anima.core.bus import EventBus
 from anima.core.context import Context
-from anima.core.exceptions import DependencyError, LifecycleError
+from anima.core.exceptions import DependencyError, LifecycleError, RollbackError
 from anima.core.lifecycle import LifecycleManager
 from anima.core.plugin import Plugin
 from anima.core.registry import ServiceRegistry
@@ -175,3 +175,168 @@ async def test_app_start_missing_dependency_raises():
     app = App()
     with pytest.raises(DependencyError):
         await app.start([make_plugin("a", dependencies=["ghost"])])
+
+
+# ---------- v1.1.1 start/stop 原子性 ----------
+
+
+async def test_app_start_load_failure_is_recoverable():
+    """load 阶段失败：副作用被回滚，App 可再次 start 成功。"""
+    app = App()
+
+    class NoisyThenFail(Plugin):
+        name = "noisy"
+
+        async def load(self, ctx: Context) -> None:
+            ctx.on("evt", lambda d: None)
+            ctx.provide("svc", 1)
+            raise RuntimeError("load 失败")
+
+    with pytest.raises(RuntimeError):
+        await app.start([NoisyThenFail()])
+
+    assert app.bus.count() == 0
+    assert app.registry.list() == []
+    assert app.lifecycle.get_state("noisy") == "unloaded"
+
+    # 半启动状态被清理 -> 可再次 start
+    await app.start([make_plugin("fresh")])
+    assert app.lifecycle.get_state("fresh") == "enabled"
+    await app.stop()
+
+
+async def test_app_start_enable_failure_is_recoverable():
+    """enable 阶段失败：已启用插件被回滚，App 可再次 start 成功。"""
+    app = App()
+
+    class EnableFail(Plugin):
+        name = "boom"
+
+        async def load(self, ctx: Context) -> None:
+            ctx.provide("svc", 1)
+
+        async def enable(self) -> None:
+            raise RuntimeError("enable 失败")
+
+    good = make_plugin("good")
+    with pytest.raises(RuntimeError):
+        await app.start([good, EnableFail()])
+
+    assert app.bus.count() == 0
+    assert app.registry.list() == []
+    assert app.lifecycle.get_state("good") == "unloaded"
+    assert app.lifecycle.get_state("boom") == "unloaded"
+
+    await app.start([make_plugin("fresh")])
+    assert app.lifecycle.get_state("fresh") == "enabled"
+    await app.stop()
+
+
+async def test_unload_all_continues_after_cleanup_failure():
+    """unload_all 中单个插件清理失败不阻断其余卸载，stop 仍复位状态。"""
+    app = App()
+
+    class FaultyCleanup(Plugin):
+        name = "faulty"
+
+        async def load(self, ctx: Context) -> None:
+            ctx.on_cleanup(lambda: (_ for _ in ()).throw(RuntimeError("清理失败")))
+
+    good = make_plugin("good")
+    await app.start([good, FaultyCleanup()])
+
+    with pytest.raises(RollbackError):
+        await app.stop()
+
+    # good 不被 faulty 的失败阻断
+    assert app.lifecycle.get_state("good") == "unloaded"
+    assert app.lifecycle.get_state("faulty") == "unloaded"
+    # stop 兜底清理仍执行，App 可重启
+    assert app.bus.count() == 0
+    assert app.registry.list() == []
+    assert app._started is False
+    await app.start([make_plugin("next")])
+    await app.stop()
+
+
+# ---------- v1.2: 单插件热插拔（P2-3） ----------
+
+
+class HotService(Plugin):
+    """热插拔用的最小服务提供者。"""
+
+    name = "hot"
+
+    async def load(self, ctx: Context) -> None:
+        ctx.provide("hot-svc", "ready")
+
+
+async def test_app_hot_plug_requires_started_app():
+    """未 start 时热插拔被拒绝（先 start 再装卸单个插件）。"""
+    app = App()
+    with pytest.raises(LifecycleError):
+        await app.load_plugin(make_plugin("late"))
+    with pytest.raises(LifecycleError):
+        await app.unload_plugin("late")
+
+
+async def test_app_hot_plug_roundtrip():
+    """运行中装卸单个插件：服务随装随卸，其余插件不受影响。"""
+    app = App()
+    await app.start([make_plugin("resident")])
+
+    await app.load_plugin(HotService())
+    assert app.lifecycle.get_state("hot") == "enabled"
+    assert app.registry.use("hot-svc") == "ready"
+
+    await app.unload_plugin("hot")
+    assert app.lifecycle.get_state("hot") == "unloaded"
+    assert app.registry.has("hot-svc") is False
+    assert app.lifecycle.get_state("resident") == "enabled"
+    assert app._started is True
+
+    await app.stop()
+
+
+async def test_app_unload_plugin_refuses_when_depended_on():
+    """有插件依赖时拒绝卸载，避免留下指向已消失服务的破洞插件。"""
+    app = App()
+    await app.start([HotService()])
+    await app.load_plugin(make_plugin("consumer", dependencies=["hot"]))
+
+    with pytest.raises(LifecycleError):
+        await app.unload_plugin("hot")
+
+    await app.unload_plugin("consumer")
+    await app.unload_plugin("hot")
+    assert app.lifecycle.get_state("hot") == "unloaded"
+    await app.stop()
+
+
+async def test_app_hot_plug_failure_leaves_app_healthy():
+    """热插拔失败不破坏正在运行的 App。"""
+    app = App()
+    await app.start([make_plugin("resident")])
+
+    class BadLoad(Plugin):
+        name = "bad"
+
+        async def load(self, ctx: Context) -> None:
+            raise RuntimeError("热插拔失败")
+
+    with pytest.raises(RuntimeError):
+        await app.load_plugin(BadLoad())
+
+    assert app.lifecycle.get_state("bad") == "unloaded"
+    assert app.lifecycle.get_state("resident") == "enabled"
+    assert app._started is True
+    await app.stop()
+
+
+async def test_app_unload_plugin_unknown_name_raises():
+    """卸载未加载的插件抛 LifecycleError（生命周期层的 require 语义）。"""
+    app = App()
+    await app.start([make_plugin("resident")])
+    with pytest.raises(LifecycleError):
+        await app.unload_plugin("ghost")
+    await app.stop()

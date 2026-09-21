@@ -19,7 +19,7 @@
 """
 
 from anima.core.app import App
-from anima.core.bus import EventBus
+from anima.core.bus import ErrorHook, EventBus
 from anima.core.context import Context
 from anima.core.effects import CleanupFn, EffectTracker
 from anima.core.exceptions import (
@@ -30,7 +30,13 @@ from anima.core.exceptions import (
     ServiceExistsError,
     ServiceNotFoundError,
 )
-from anima.core.lifecycle import LifecycleManager, PluginState
+from anima.core.lifecycle import (
+    EVENT_PLUGIN_ENABLED,
+    EVENT_PLUGIN_LOADED,
+    EVENT_PLUGIN_UNLOADED,
+    LifecycleManager,
+    PluginState,
+)
 from anima.core.plugin import Plugin
 from anima.core.registry import ServiceRegistry
 
@@ -40,7 +46,11 @@ __all__ = [
     "CleanupFn",
     "Context",
     "DependencyError",
+    "EVENT_PLUGIN_ENABLED",
+    "EVENT_PLUGIN_LOADED",
+    "EVENT_PLUGIN_UNLOADED",
     "EffectTracker",
+    "ErrorHook",
     "EventBus",
     "LifecycleError",
     "LifecycleManager",
@@ -52,4 +62,4 @@ __all__ = [
     "ServiceRegistry",
 ]
 
-__version__ = "1.1.1"
+__version__ = "1.3.1"

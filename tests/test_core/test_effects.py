@@ -261,3 +261,43 @@ def test_push_task_rejects_non_task():
     tracker = EffectTracker()
     with pytest.raises(TypeError):
         tracker.push_task("not-a-task")  # type: ignore[arg-type]
+
+
+async def test_push_task_already_cancelled_keeps_rolling_back():
+    """已取消的任务不得阻断回滚栈（CancelledError 不可逃出 rollback）。"""
+    tracker = EffectTracker()
+    executed: list[str] = []
+
+    async def long_running():
+        await asyncio.sleep(60)
+
+    task = asyncio.ensure_future(long_running())
+    await asyncio.sleep(0)
+    task.cancel()
+    while not task.done():
+        await asyncio.sleep(0)
+    assert task.cancelled()
+
+    tracker.push(lambda: executed.append("survivor"))
+    tracker.push_task(task)
+
+    await tracker.rollback()  # 修复前：CancelledError 逃出，survivor 永不执行
+    assert executed == ["survivor"]
+    assert tracker.count() == 0
+
+# ---------- v1.3: on 的 priority 透传 ----------
+
+
+async def test_on_passes_priority_through():
+    """EffectTracker.on 透传 priority，回滚仍能全部取消。"""
+    tracker = EffectTracker()
+    bus = EventBus()
+    calls: list[str] = []
+    tracker.on(bus, "e", lambda d: calls.append("low"))
+    tracker.on(bus, "e", lambda d: calls.append("high"), priority=7)
+
+    bus.emit("e")
+    assert calls == ["high", "low"]
+
+    await tracker.rollback()
+    assert bus.count() == 0

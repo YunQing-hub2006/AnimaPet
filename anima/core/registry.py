@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from anima.core.exceptions import ServiceExistsError
+from anima.core.exceptions import ServiceExistsError, ServiceNotFoundError
 
 __all__ = ["ServiceRegistry"]
 
@@ -15,6 +15,8 @@ class ServiceRegistry:
     - 重复注册同名服务抛 :class:`ServiceExistsError`。
     - ``unregister`` 不存在的名字静默成功（幂等）。
     - ``use`` 返回实例本身，不做任何包装。
+    - ``use_strict``（v1.2）是严格形式：未注册时抛
+      :class:`ServiceNotFoundError`。
     """
 
     def __init__(self) -> None:
@@ -33,6 +35,19 @@ class ServiceRegistry:
     def use(self, name: str, default: Any = None) -> Any:
         """获取服务实例；未注册时返回 ``default``。"""
         return self._services.get(name, default)
+
+    def use_strict(self, name: str) -> Any:
+        """获取服务实例；未注册时抛 :class:`ServiceNotFoundError`（v1.2）。
+
+        迁移路径（maintenance.md 第 6 节）：``use()`` 的"返回 default"是冻结
+        语义，收紧它属破坏性变更，留待下一个主版本；新代码改用本方法即可让
+        "忘注册 / 拼错名字"在**取用点**立即暴露，而不是延迟到使用时才炸，
+        且将来 ``use()`` 真正变严格时无需再改。
+        """
+        try:
+            return self._services[name]
+        except KeyError:
+            raise ServiceNotFoundError(f"服务未注册: {name!r}") from None
 
     def has(self, name: str) -> bool:
         """服务是否已注册。"""

@@ -35,8 +35,7 @@ class EffectTracker:
     def push_task(self, task: asyncio.Future[Any]) -> asyncio.Future[Any]:
         """登记一个后台任务，回滚时取消并等待其真正结束。
 
-        已完成的任务登记后 rollback 是空操作；任务自身的异常（取消
-        之外）会进入 :class:`RollbackError` 聚合。
+        已结束的任务：已取消的跳过，其余 re-raise 异常进入 RollbackError 聚合。
         """
         if not isinstance(task, asyncio.Future):
             raise TypeError(f"push_task 需要 asyncio.Future/Task，得到 {type(task).__name__}")
@@ -50,16 +49,21 @@ class EffectTracker:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
-            else:
-                # 已结束的任务：re-raise 让 rollback 感知失败（若有）
+            elif not task.cancelled():
+                # 已结束且未被取消：re-raise 让 rollback 感知真实失败（若有）。
+                # 已取消的任务必须跳过：await 它会抛回 CancelledError，而
+                # rollback 只捕获 Exception，整个回滚栈会被中断、其余副作用
+                # 永不回滚（CancelledError 继承 BaseException）。
                 await task
 
         self.push(_cancel_and_await)
         return task
 
-    def on(self, target: "EventBus", event: str, handler: Callable[[Any], Any]) -> None:
-        """订阅事件并自动记录对应的取消订阅。"""
-        target.subscribe(event, handler)
+    def on(
+        self, target: "EventBus", event: str, handler: Callable[[Any], Any], priority: int = 0
+    ) -> None:
+        """订阅事件并自动记录对应的取消订阅。``priority`` 透传给总线（v1.3）。"""
+        target.subscribe(event, handler, priority=priority)
         self.push(lambda: target.unsubscribe(event, handler))
 
     def provide(self, registry: "ServiceRegistry", name: str, instance: Any) -> None:

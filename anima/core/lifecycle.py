@@ -1,16 +1,13 @@
 """生命周期管理器：加载/启用/禁用/卸载全流程管理，含 Kahn 拓扑排序。
 
-状态机::
-
-    unloaded -> loaded -> enabled -> disabled -> unloaded
-
-其中 ``enabled`` 状态下调用 ``unload`` 会先自动 ``disable`` 再卸载；
-其余任何跳跃式转换都是 :class:`LifecycleError`。
+状态机：``unloaded -> loaded -> enabled -> disabled -> unloaded``；
+``enabled`` 下 ``unload`` 先自动 ``disable``，其余跳跃式转换抛 :class:`LifecycleError`。
 """
 
 from __future__ import annotations
 
 import inspect
+from collections import deque
 from typing import TYPE_CHECKING
 
 from anima.core.context import Context
@@ -20,10 +17,22 @@ from anima.core.plugin import Plugin
 if TYPE_CHECKING:
     from anima.core.app import App
 
-__all__ = ["LifecycleManager", "PluginState"]
+__all__ = [
+    "EVENT_PLUGIN_ENABLED",
+    "EVENT_PLUGIN_LOADED",
+    "EVENT_PLUGIN_UNLOADED",
+    "LifecycleManager",
+    "PluginState",
+]
 
 #: 合法的状态字符串（也是 ``get_state`` 的返回值类型别名）。
 PluginState = str
+
+#: 生命周期事件名（v1.3）；payload 是插件名，插件可用 ``ctx.on`` 订阅做横向协作。
+EVENT_PLUGIN_LOADED = "kernel.plugin.loaded"
+EVENT_PLUGIN_ENABLED = "kernel.plugin.enabled"
+#: 在副作用回滚之后发出——卸载中的插件自己订阅不到了。
+EVENT_PLUGIN_UNLOADED = "kernel.plugin.unloaded"
 
 _UNLOADED = "unloaded"
 _LOADED = "loaded"
@@ -45,6 +54,10 @@ class LifecycleManager:
     def get_state(self, name: str) -> PluginState:
         """返回插件当前状态；未知插件按 ``unloaded`` 处理。"""
         return self._states.get(name, _UNLOADED)
+
+    def dependents_of(self, name: str) -> list[str]:
+        """返回当前已加载插件中直接依赖 `name` 的名字（v1.2，热插拔用）。"""
+        return [other.name for other in self._plugins.values() if name in other.dependencies]
 
     def _require(self, name: str) -> Plugin:
         plugin = self._plugins.get(name)
@@ -78,10 +91,12 @@ class LifecycleManager:
         try:
             for plugin in ordered:
                 ctx = Context(self._app, plugin)
+                _inject_ctx(plugin, ctx)  # v1.2：生命周期全阶段可用的注入
                 self._plugins[plugin.name] = plugin
                 self._states[plugin.name] = _LOADED
                 self._load_order.append(plugin.name)
                 await _call(plugin.load, ctx)
+                self._app.bus.emit(EVENT_PLUGIN_LOADED, plugin.name)
         except BaseException as exc:
             await self._raise_with_rollback_errors(exc)
 
@@ -134,6 +149,46 @@ class LifecycleManager:
 
     # -- 单插件操作 ---------------------------------------------------------
 
+    async def load_one(self, plugin: Plugin) -> None:
+        """运行时加载并启用**单个**插件（热插拔，v1.2）。
+
+        与 :meth:`load_all` 的两点不同：
+
+        - 依赖只需指向**已经加载**的插件，不必同批传入；
+        - 失败回滚只回滚这一个插件，已经在跑的插件完全不受影响。
+
+        校验（空名、重名、依赖缺失）仍然在任何 `plugin.load()` 之前完成。
+        失败时原始异常原样抛出；回滚自身的清理失败则聚合进
+        :class:`RollbackError`（`__cause__` 指向原始异常）。
+        """
+        if not plugin.name:
+            raise LifecycleError("插件 name 不能为空")
+        if plugin.name in self._plugins:
+            raise LifecycleError(f"插件重复注册: {plugin.name!r}")
+        missing = [dep for dep in plugin.dependencies if dep not in self._plugins]
+        if missing:
+            raise DependencyError(
+                f"插件 {plugin.name!r} 依赖的 {missing[0]!r} 不在已加载插件中"
+            )
+
+        ctx = Context(self._app, plugin)
+        _inject_ctx(plugin, ctx)
+        self._plugins[plugin.name] = plugin
+        self._states[plugin.name] = _LOADED
+        self._load_order.append(plugin.name)
+        try:
+            await _call(plugin.load, ctx)
+            self._app.bus.emit(EVENT_PLUGIN_LOADED, plugin.name)
+            await self.enable(plugin.name)
+        except BaseException as exc:
+            # 只回滚这一个插件——_raise_with_rollback_errors 会卸载全部，
+            # 那对热插拔是灾难性的。
+            try:
+                await self.unload(plugin.name)
+            except RollbackError as rollback_exc:
+                raise RollbackError(rollback_exc.errors) from exc
+            raise
+
     async def enable(self, name: str) -> None:
         """启用插件；仅 ``loaded`` / ``disabled`` 状态合法。"""
         plugin = self._require(name)
@@ -142,6 +197,7 @@ class LifecycleManager:
             raise LifecycleError(f"插件 {name!r} 不能从 {state} 转换到 enabled")
         await _call(plugin.enable)
         self._states[name] = _ENABLED
+        self._app.bus.emit(EVENT_PLUGIN_ENABLED, name)
 
     async def disable(self, name: str) -> None:
         """禁用插件；仅 ``enabled`` 状态合法。"""
@@ -178,6 +234,8 @@ class LifecycleManager:
         self._states[name] = _UNLOADED
         self._load_order.remove(name)
         self._app.discard_effects(name)
+        # 放在副作用回滚之后：卸载者自己的订阅此时已经没了。
+        self._app.bus.emit(EVENT_PLUGIN_UNLOADED, name)
         if errors:
             raise RollbackError(errors)
 
@@ -197,12 +255,11 @@ def _topo_sort(plugins: list[Plugin]) -> list[Plugin]:
             indegree[plugin.name] += 1
             dependents[dep].append(plugin.name)
 
-    queue = sorted(
-        (p.name for p in plugins if indegree[p.name] == 0),
-    )
+    # deque 而非 list：入队/出队是 Kahn 的高频操作，list.pop(0) 是 O(n)。
+    queue: deque[str] = deque(sorted(p.name for p in plugins if indegree[p.name] == 0))
     ordered: list[str] = []
     while queue:
-        current = queue.pop(0)
+        current = queue.popleft()
         ordered.append(current)
         for downstream in dependents[current]:
             indegree[downstream] -= 1
@@ -210,9 +267,52 @@ def _topo_sort(plugins: list[Plugin]) -> list[Plugin]:
                 queue.append(downstream)
 
     if len(ordered) != len(plugins):
-        cyclic = sorted(name for name, deg in indegree.items() if deg > 0)
-        raise DependencyError(f"检测到循环依赖，涉及插件: {', '.join(cyclic)}")
+        # 剩余节点 = 环成员 + 仅被环拖累的下游节点。直接列举它们会把
+        # 无关插件报成环成员、误导排查方向，因此回溯出真实环路。
+        cycle = _find_cycle(dependents)
+        raise DependencyError(f"检测到循环依赖: {' -> '.join(cycle)}")
     return [by_name[name] for name in ordered]
+
+
+def _find_cycle(dependents: dict[str, list[str]]) -> list[str]:
+    """回溯依赖图中的一个真实环路，返回首尾闭合的路径（如 ``a -> b -> a``）。
+
+    三色标记 DFS：命中灰色节点说明走到了当前搜索路径上的节点，从该节点
+    截断即得环路。该方法只在 :func:`_topo_sort` 判定"存在环"之后调用，
+    此时图中必有环；末行返回空列表仅为类型完备。
+    """
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: dict[str, int] = dict.fromkeys(dependents, WHITE)
+    path: list[str] = []
+
+    def visit(node: str) -> list[str] | None:
+        color[node] = GRAY
+        path.append(node)
+        for downstream in dependents[node]:
+            if color[downstream] == GRAY:
+                return [*path[path.index(downstream) :], downstream]
+            if color[downstream] == WHITE:
+                found = visit(downstream)
+                if found is not None:
+                    return found
+        path.pop()
+        color[node] = BLACK
+        return None
+
+    for name in dependents:
+        if color[name] == WHITE:
+            found = visit(name)
+            if found is not None:
+                return found
+    return []  # pragma: no cover - 调用方已保证存在环路
+
+
+def _inject_ctx(plugin: Plugin, ctx: Context) -> None:
+    """注入 ``plugin.ctx``；插件自己声明了只读 ``ctx`` 时给出可操作报错（v1.3.1）。"""
+    try:
+        plugin.ctx = ctx
+    except AttributeError as exc:
+        raise LifecycleError(f"插件 {plugin.name!r} 的 ctx 不可写：ctx 是内核保留属性名") from exc
 
 
 async def _call(method: Any, *args: Any) -> None:

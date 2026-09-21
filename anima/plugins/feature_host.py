@@ -194,8 +194,15 @@ class FeatureAdapter(Plugin):
 
     @property
     def ctx(self):
-        """插件内核 Context(FeatureContext 白名单内部用)。"""
+        """插件内核 Context(FeatureContext 白名单内部用)。
+
+        v1.2+ 内核会在 load() 前注入 plugin.ctx，因此必须是可写属性。
+        """
         return self._ctx
+
+    @ctx.setter
+    def ctx(self, value):
+        self._ctx = value
 
     async def enable(self) -> None:
         if self.instance is None:
