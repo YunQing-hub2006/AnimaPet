@@ -14,8 +14,26 @@ dist/
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 .pytest_cache/
 .coverage
 *.egg-info/
+
+# 角色卡导出/暂存临时目录
+.chara_export/
+.chara_stage_*/
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 本地密钥与环境变量
+.env
+.env.*
+*.local

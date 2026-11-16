@@ -50,5 +50,5 @@
 
 ## 8. 收尾
 
-- [ ] 全部通过后删除 `E:\Zcode-work\Anima-core-old\core` 归档
+- [ ] 全部通过后删除 `<本地归档目录>/core` 归档
 - [ ] 如需正式发布再补 PyInstaller 图标/单文件版/签名

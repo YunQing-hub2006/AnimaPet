@@ -8,7 +8,7 @@
 ### 源码运行
 
 ```bash
-cd E:\Zcode-work\AnimaPet
+cd AnimaPet
 run.bat                    # pythonw 无控制台启动(推荐)
 .venv\Scripts\python main.py   # 有控制台的调试运行
 ```
