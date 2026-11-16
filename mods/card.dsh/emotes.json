@@ -1,0 +1,18 @@
+{
+  "emotes": {
+    "default": { "name": "平时", "anim": "idle", "hold_ms": 4000,
+                 "lines": ["……", "主人在忙什么呀？"] },
+    "happy":   { "name": "开心", "anim": "happy", "hold_ms": 3200,
+                 "lines": ["好耶！", "开心！"] },
+    "shy":     { "name": "害羞", "anim": "shy", "hold_ms": 3200,
+                 "lines": ["哎呀……", "突然看我干嘛啦。"] },
+    "angry":   { "name": "生气", "anim": "angry", "hold_ms": 3200,
+                 "lines": ["哼！", "不理你了！"] },
+    "giggle":  { "name": "咯咯笑", "anim": "giggle", "hold_ms": 3200,
+                 "lines": ["嘻嘻。", "痒痒痒！"] },
+    "wave":    { "name": "元气挥手", "anim": "wave", "hold_ms": 3200,
+                 "lines": ["主人早！", "欢迎回来～"] },
+    "sleepy":  { "name": "犯困", "anim": "sleepy", "hold_ms": 4000,
+                 "lines": ["好困……", "再睡五分钟……"] }
+  }
+}

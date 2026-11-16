@@ -1,0 +1,113 @@
+{
+  "rules": [
+    {
+      "on": "pet.petted",
+      "cooldown": 3,
+      "then": [
+        { "say": "@idle.this.petted" },
+        { "emote": "giggle" }
+      ]
+    },
+    {
+      "on": "pet.double_clicked",
+      "cooldown": 5,
+      "then": [
+        { "say": "@idle.this.idle_action" },
+        { "anim": "card.dsh:dance" }
+      ]
+    },
+    {
+      "on": "timer.idle",
+      "when": "rand < 0.30",
+      "cooldown": 45,
+      "then": [
+        { "anim": "card.dsh:eat" },
+        { "say": "吃白饭时间到！" }
+      ]
+    },
+    {
+      "on": "timer.idle",
+      "when": "rand < 0.25",
+      "cooldown": 50,
+      "then": [
+        { "anim": "card.dsh:cat" },
+        { "say": "撸猫中，勿扰……" }
+      ]
+    },
+    {
+      "on": "timer.idle",
+      "when": "rand < 0.22",
+      "cooldown": 45,
+      "then": [
+        { "anim": "card.dsh:hotpot" },
+        { "say": "涮火锅咕嘟咕嘟～" }
+      ]
+    },
+    {
+      "on": "timer.idle",
+      "when": "rand < 0.25",
+      "cooldown": 50,
+      "then": [
+        { "anim": "card.dsh:stretch" },
+        { "say": "伸个懒腰——啊——" }
+      ]
+    },
+    {
+      "on": "timer.idle",
+      "when": "rand < 0.20",
+      "cooldown": 60,
+      "then": [
+        { "anim": "card.dsh:code" },
+        { "say": "这段代码有 bug……不对，是特性。" }
+      ]
+    },
+    {
+      "on": "timer.idle",
+      "when": "rand < 0.30",
+      "cooldown": 45,
+      "then": [
+        { "say": "@idle.this.idle_action" }
+      ]
+    },
+    {
+      "on": "timer.idle",
+      "when": "rand < 0.15",
+      "cooldown": 90,
+      "then": [
+        { "say": "@idle.this.default" }
+      ]
+    },
+    {
+      "on": "timer.sit",
+      "cooldown": 1,
+      "then": [
+        { "say": "@idle.this.sit" },
+        { "emote": "wave" }
+      ]
+    },
+    {
+      "on": "timer.night",
+      "cooldown": 1,
+      "then": [
+        { "say": "@idle.this.night" },
+        { "emote": "sleepy" }
+      ]
+    },
+    {
+      "on": "pet.drag_started",
+      "cooldown": 5,
+      "then": [
+        { "say": "哇啊——飞起来了！" },
+        { "emote": "shy" }
+      ]
+    },
+    {
+      "on": "chat.reply",
+      "when": "event.ok",
+      "cooldown": 10,
+      "then": [
+        { "emote": "wave" }
+      ]
+    }
+  ]
+}
