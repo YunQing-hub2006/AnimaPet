@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-基于 Anima 内核 v1.3.1 的 Windows 桌面宠物元框架。
+基于 [Anima 内核 v1.3.1](https://github.com/YunQing-hub2006/Anima-v1.1) 的 Windows 桌面宠物元框架。
 数据格式沿用 YingPet-v4 的 card.* 角色卡与行为规则, 在 Anima 插件内核上重新组织:
 事件总线 + asyncio 内核线程 + Qt 主线程双线程模型, 官方插件/mod 全部可热重载。
 
@@ -131,18 +131,6 @@ AnimaPet/
 └── .gitignore          忽略规则（data/、构建产物、密钥、工具状态）
 ```
 
-### 使用注意事项
-
-1. **环境**：Windows + Python >= 3.11；GUI 依赖 PyQt6（`pip install -r requirements.txt`）。
-   仓库内的 `.venv` 为本地开发目录，未随仓库分发，请自行创建。
-2. **首次运行**：自动在 `data/` 生成配置/状态/日志；`data/` 已被 git 忽略，
-   其中可能包含你填写的 LLM API key（以明文存于 `data/config.json`）——
-   **切勿提交或分享该文件**。建议使用环境变量或本地密钥管理。
-3. **聊天功能**：需自行在设置中填写 OpenAI/DeepSeek 兼容的 API 地址与密钥；
-   未配置时角色会使用卡内本地台词降级回复，不影响其他功能。
-4. **测试**：`python -m pytest tests/ -q`。集成测试中依赖真实角色素材的部分，
-   在本地保留 `mods/card.ying/` 与 `mods/card.dsh/` 时正常执行。
-5. **打包**：`tools/build_exe.py` 生成 `dist/AnimaPet/`（onedir），属可再生产物，不入库。
 
 ### 素材版权
 
