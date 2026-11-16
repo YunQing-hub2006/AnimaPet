@@ -17,8 +17,12 @@
 卡内素材注册为命名空间 id: <卡id>:<短名>, 归属隔离由 character 字段保证。
 """
 import os
+import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
+
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from anima.utils import jsonio, log, paths
 
@@ -91,6 +95,176 @@ def load_scaled_pixmap(path, size):
 
 
 # ----------------------------------------------------------------------
+# 后台预解码: 整组解码不再占用 Qt 主线程
+# ----------------------------------------------------------------------
+# 冷启动/换角色卡时同步解 idle+talk 共 80 帧要 ~96ms, 表现为可见冻结
+# (tools/bench_anim.py 可复现)。现在的分工:
+#
+#   主线程  : 只同步解**第一帧**(约 1ms)立刻出画, 然后调 prefetch 走人;
+#   工作线程: 解其余整组 —— 只产出 QImage(可跨线程), 不碰 QPixmap/QWidget;
+#   主线程  : 经 queued signal 收到整组, 转 QPixmap 写进 _frame_lru, 再回调。
+#
+# 跨线程手法与 plugins/bridge.py 的 _UiBridge 完全一致(信号 + 排队投递):
+# 跨线程只传数据, GUI 对象一律在 Qt 主线程构造(QPixmap 不能跨线程建)。
+# 副作用是 _frame_lru 只被主线程读写, 无需加锁。
+_pending_keys: set = set()          # 正在后台解的 (dir, size), 防重复排队
+_pending_lock = threading.Lock()
+_live_marshallers: set = set()      # 在途投递器: 槽执行前必须保活
+_workers: set = set()               # 在途解码线程, 退出前必须等它们收手
+_workers_lock = threading.Lock()
+_shutting_down = False
+
+
+class _FrameReady(QObject):
+    """工作线程 → Qt 主线程 的帧投递器(须在 GUI 线程创建)。
+
+    每次 prefetch 现建一个, 并登记进 _live_marshallers 直到槽执行完 ——
+    queued 投递是异步的, 提前放手会被 GC 掉。刻意**不做模块级复用**:
+    QObject 的 C++ 实体随 QApplication 存亡, 跨应用复用会拿到已删除的包装器
+    (测试里每个模块一个 QApplication, 复用必然踩到)。
+    """
+
+    _ready = pyqtSignal(object)
+
+    def __init__(self):
+        super().__init__()
+        self._ready.connect(self._install)   # 自动排队: 槽在主线程执行
+
+    def post(self, batch, on_ready):
+        self._ready.emit((batch, on_ready))
+
+    def _install(self, payload):
+        """主线程槽: QImage -> QPixmap 并写入全局帧缓存。"""
+        global _frame_bytes
+        try:
+            batch, on_ready = payload
+            if _shutting_down:
+                return
+            from PyQt6.QtGui import QPixmap
+            for key, images in batch:
+                if key in _frame_lru or not images:
+                    continue
+                size = key[1]
+                frames = [QPixmap.fromImage(img) for img in images]
+                _frame_lru[key] = frames
+                # 与 frames() 用同一套估算口径, 否则淘汰时对不上账
+                _frame_bytes += len(frames) * size * size * 4
+            AnimMod._evict_if_needed()
+            if on_ready is not None:
+                on_ready()
+        finally:
+            _live_marshallers.discard(self)
+
+
+def _decode_to_images(anim, size):
+    """工作线程内执行: 只解 QImage(跨线程安全), 不做 QPixmap 转换。"""
+    from PyQt6.QtGui import QImageReader
+    out = []
+    for path in anim.frame_paths():
+        if _shutting_down:
+            return []          # 正在退出: 立刻停手, 别在 Qt 拆机器具后再碰图像 API
+        reader = QImageReader(path)
+        reader.setScaledSize(_scaled_size(reader, size))
+        img = reader.read()
+        if not img.isNull():
+            out.append(img)
+    return out
+
+
+def is_cached(anim, size) -> bool:
+    """该动画在目标尺寸下是否已有完整帧组。"""
+    return anim is not None and (anim.dir, size) in _frame_lru
+
+
+def instant_frames(anim, size):
+    """主线程能立刻给出的帧: 命中缓存给整组, 否则只解第一帧顶上。
+
+    绝不在此整组解码 —— 那是 96ms 冻结的来源; 缺的部分交给 prefetch。
+    """
+    if anim is None:
+        return []
+    cached = _frame_lru.get((anim.dir, size))
+    if cached is not None:
+        _frame_lru.move_to_end((anim.dir, size))
+        return cached
+    return [anim.first_frame(size)]
+
+
+def prefetch(anims, size, on_ready=None):
+    """后台解码这些动画的整组帧; 完成后回主线程写缓存并回调 on_ready。
+
+    只允许在 Qt 主线程调用(投递器 QObject 的线程归属)。
+    已在缓存或已在排队的会跳过; 无活可干时直接返回, 不白起线程。
+    """
+    if _shutting_down:
+        return
+    jobs = []
+    with _pending_lock:
+        for a in anims:
+            if a is None:
+                continue
+            key = (a.dir, size)
+            if key in _frame_lru or key in _pending_keys:
+                continue
+            _pending_keys.add(key)
+            jobs.append(a)
+    if not jobs:
+        return
+    marshaller = _FrameReady()
+    _live_marshallers.add(marshaller)    # 保活到槽执行完(投递是异步的)
+
+    def _work():
+        batch = []
+        try:
+            for anim in jobs:
+                batch.append(((anim.dir, size), _decode_to_images(anim, size)))
+        except Exception as e:
+            _log.warning("frame prefetch failed: %s", e)
+        finally:
+            # 无论成败都放掉占位: 失败的下一轮可重试, 而不是永久卡在"排队中"
+            with _pending_lock:
+                _pending_keys.difference_update((a.dir, size) for a in jobs)
+        try:
+            marshaller.post(batch, on_ready)
+        except Exception as e:
+            _log.warning("frame prefetch post failed: %s", e)
+            _live_marshallers.discard(marshaller)
+
+    def _run_job():
+        try:
+            _work()
+        finally:
+            with _workers_lock:
+                _workers.discard(threading.current_thread())
+
+    worker = threading.Thread(target=_run_job, daemon=True, name="anima-frames")
+    with _workers_lock:
+        _workers.add(worker)
+    worker.start()
+
+
+def drain_prefetch(timeout: float = 5.0) -> None:
+    """等在途解码线程收手(不改变后续可用性)。
+
+    Qt 的图像 API 在 QApplication 析构后不可再用: 工作线程若跨过这个时点,
+    会直接 access violation(整包测试退出时实测崩过)。所以进程/测试收尾前
+    必须 drain, 让线程在 Qt 还活着的时候自然结束。
+    """
+    deadline = time.time() + timeout
+    with _workers_lock:
+        workers = list(_workers)
+    for t in workers:
+        t.join(max(0.0, deadline - time.time()))
+
+
+def shutdown_prefetch(timeout: float = 5.0) -> None:
+    """退出前调用: 让在途解码立刻停手并等它结束, 丢弃迟到的结果。"""
+    global _shutting_down
+    _shutting_down = True
+    drain_prefetch(timeout)
+
+
+# ----------------------------------------------------------------------
 # 模组对象
 # ----------------------------------------------------------------------
 
@@ -124,15 +298,31 @@ class AnimMod:
         self._evict_if_needed()
         return frames
 
-    def _decode_frames(self, size):
+    def frame_paths(self):
+        """frames/ 下按名排序的 PNG 路径。整组解码与首帧共用同一份顺序。"""
         folder = os.path.join(self.dir, "frames")
         try:
             names = sorted(n for n in os.listdir(folder) if n.lower().endswith(".png"))
         except OSError:
-            names = []
+            return []
+        return [os.path.join(folder, n) for n in names]
+
+    def first_frame(self, size):
+        """只解第一帧(约 1ms), 供"先出画、整组后台补"用。
+
+        刻意**不进缓存**: 缓存里的一帧会被 frames() 当成完整帧组返回,
+        那样整个动画就只剩一帧了。
+        """
+        paths = self.frame_paths()
+        if not paths:
+            return self._fallback_disc(size)
+        pm = load_scaled_pixmap(paths[0], size)
+        return pm if not pm.isNull() else self._fallback_disc(size)
+
+    def _decode_frames(self, size):
         frames = []
-        for n in names:
-            pm = load_scaled_pixmap(os.path.join(folder, n), size)
+        for path in self.frame_paths():
+            pm = load_scaled_pixmap(path, size)
             if not pm.isNull():
                 frames.append(pm)
         if not frames:
@@ -451,6 +641,8 @@ def _build_card(d, data, card_id):
                     _log.warning("card %s: 表情 %r 非法(不是对象), 已跳过", card_id, key)
                     continue
                 em = _one_emote(str(key), e, d, raw, character=card_id, version=version)
+                # 卡内动画引用归一: 短名 → <卡id>:<短名>(含 ./: 视为外部引用原样保留)
+                em.anim = _resolve_anim_ref(card_id, em.anim, "")
                 em.source_file = "emotes.json"
                 if em.id:
                     mods.append(em)

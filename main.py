@@ -42,6 +42,7 @@ except Exception as e:
 
 from anima.core import App
 from anima.events import EventNames
+from anima.mods import loader
 from anima.mods.registry import Registry
 from anima.plugins.actions import ActionRegistry, ActionsPlugin
 from anima.plugins.bridge import BridgePlugin
@@ -130,6 +131,21 @@ def _configure_qt(app):
     app.setQuitOnLastWindowClosed(False)
 
 
+def _setup_tray(core, bridge):
+    """装配系统托盘: ``mods`` / ``config`` 两个服务由插件在内核 start 时 provide。
+
+    托盘坏掉不该带走整个宠物, 故吞掉异常只记日志(返回 None)。
+    注意调用方**必须持有返回值**: TrayController 是无父 QObject,
+    没有引用会被 GC, 托盘图标随即消失。
+    """
+    try:
+        return TrayController(core.registry.use("mods"),
+                              core.registry.use("config"), bridge)
+    except Exception as e:
+        _log.warning("tray init failed: %s", e)
+        return None
+
+
 def _run():
     log.setup()
     app = QApplication(sys.argv)
@@ -141,7 +157,7 @@ def _run():
 
     sys.excepthook = excepthook
 
-    core, plugins, pet, _bridge = _build_stack()
+    core, plugins, pet, bridge = _build_stack()
     holder = {"loop": None, "started": threading.Event(), "error": None}
     thread = threading.Thread(
         target=_kernel_main, args=(core, plugins, holder),
@@ -154,14 +170,16 @@ def _run():
         raise RuntimeError("内核线程未在 15 秒内就绪")
 
     pet.show()
-    try:
-        TrayController(registry, cfg, bridge)
-    except Exception as e:
-        _log.warning("tray init failed: %s", e)
-    _log.info("AnimaPet started at %s", paths.BASE_DIR)
+    # 持有托盘引用直到 app.exec() 结束(见 _setup_tray 注释)
+    tray = _setup_tray(core, bridge)
+    _log.info("AnimaPet started at %s (tray=%s)", paths.BASE_DIR,
+              "on" if tray is not None else "off")
     core.bus.emit(EventNames.APP_START)
 
     def on_quit():
+        # 让在途解帧线程收手并等它结束: 那些线程在用 Qt 图像 API, 必须赶在
+        # QApplication 析构前退干净(否则退出时 access violation); 同时丢弃迟到结果。
+        loader.shutdown_prefetch()
         core.bus.emit(EventNames.APP_QUIT)
         loop = holder.get("loop")
         if loop is not None:

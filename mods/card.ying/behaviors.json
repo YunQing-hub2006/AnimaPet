@@ -1,15 +1,15 @@
 {
   "rules": [
     {
-      "on": "pet.petted",
-      "cooldown": 2,
+      "on": "pet.drag_started",
       "when": "event.affinity % 20 == 0",
+      "cooldown": 2,
       "then": [
         {
-          "say": "……好感度 {event.affinity} 了。哼, 别以为这样就能收买我。"
+          "say": "@idle.this.lifted"
         },
         {
-          "emote": "tsundere"
+          "anim": "card.ying:angry"
         }
       ]
     },
@@ -23,18 +23,6 @@
         },
         {
           "emote": "mischief"
-        }
-      ]
-    },
-    {
-      "on": "pet.drag_started",
-      "then": [
-        {
-          "say": "@idle.this.lifted"
-        },
-        {
-          "emote": "angry",
-          "after_ms": 200
         }
       ]
     },

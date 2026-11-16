@@ -24,7 +24,9 @@
     },
     "mischief": {
       "name": "调皮",
-      "image": "images/mischief.png",
+      "image": "",
+      "anim": "card.ying:idle",
+      "hold_ms": 4000,
       "lines": [
         "嘿嘿, 想被我拎起来扔出去吗?",
         "时间差不多咯。",
@@ -42,8 +44,8 @@
     },
     "tsundere": {
       "name": "傲娇",
-      "image": "images/tsundere.png",
-      "anim": "",
+      "image": "",
+      "anim": "card.ying:disdain",
       "hold_ms": 4000,
       "lines": [
         "随便你……反正我也没指望过谁。",

@@ -27,7 +27,14 @@ class Registry:
         self.errors = []
 
     def apply(self, mods, enabled_ids=None, errors=None):
-        """按开关表收纳。enabled_ids: None=全启用, dict={id: bool}(缺省 True)。"""
+        """按开关表收纳。enabled_ids: None=全启用, dict={id: bool}(缺省 True)。
+
+        表情/台词包/行为按 ``<owner>:<id>`` 命名空间键收纳: 这些对象带
+        ``character`` 归属, 不同角色卡允许同 id(两张卡都可有 default/angry),
+        全局键直接混入会互相覆盖 —— 先扫的卡的同名表情会凭空消失。
+        卡内动画天然带 ``<卡id>:`` 前缀, 无需处理; 真正同 id 的全局模组
+        (模块管理器语义)仍按 id 覆盖。
+        """
         self.clear()
         self.errors = list(errors or [])
         for m in mods:
@@ -39,15 +46,24 @@ class Registry:
             elif isinstance(m, loader.AnimMod):
                 self.anims[m.id] = m
             elif isinstance(m, loader.EmoteDef):
-                self.emotes[m.id] = m
+                self.emotes[self._namespaced_key(m)] = m
             elif isinstance(m, loader.IdlePack):
-                self.idle_packs[m.id] = m
+                self.idle_packs[self._namespaced_key(m)] = m
             elif isinstance(m, loader.BehaviorMod):
-                self.behaviors[m.id] = m
+                self.behaviors[self._namespaced_key(m)] = m
             elif isinstance(m, loader.FeatureMod):
                 self.features[m.id] = m
             elif isinstance(m, loader.UiMod):
                 self.uis[m.id] = m
+
+    @staticmethod
+    def _namespaced_key(m):
+        """带 character 归属的对象 → ``<character>:<id>``(裸 id 已含卡前缀时原样);
+        全局 → 原 id。"""
+        owner = str(getattr(m, "character", "") or "")
+        if not owner or m.id.startswith(owner + ":") or m.id.startswith(owner + "."):
+            return m.id
+        return "%s:%s" % (owner, m.id)
 
     @staticmethod
     def _enabled(mid, enabled_ids):
@@ -57,7 +73,15 @@ class Registry:
 
     # ---- 查询 ----
     def emote(self, emote_id):
-        return self.emotes.get(emote_id)
+        """按表情 id 取表情。带命名空间键的专属表情也能按裸 id 命中
+        (先查原名, 再查所有 ``<owner>:<id>`` 中 id 段匹配的专属项)。"""
+        e = self.emotes.get(emote_id)
+        if e is not None:
+            return e
+        for m in self.emotes.values():
+            if m.id == emote_id and getattr(m, "character", ""):
+                return m
+        return None
 
     def anim(self, anim_id):
         return self.anims.get(anim_id)

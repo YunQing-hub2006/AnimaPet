@@ -173,10 +173,10 @@ async def test_writeback_routes_to_card_files(charcard_env, qapp):
         # 规则列表用"人话"显示(事件中文名 + 动作数), 不再暴露 on=/when= 原始字段
         assert "被摸头" in dlg.rules_list.item(0).text()
 
-        # 2d) 表情 → emotes.json
+        # 2d) 表情 → emotes.json (列表项 data 存注册表键 <character>:<id>)
         found = False
         for row in range(dlg.emote_list.count()):
-            if str(dlg.emote_list.item(row).data(0x0100)) == "default":
+            if str(dlg.emote_list.item(row).data(0x0100)).endswith(":default"):
                 dlg.emote_list.setCurrentRow(row)
                 found = True
                 break
@@ -185,9 +185,11 @@ async def test_writeback_routes_to_card_files(charcard_env, qapp):
         dlg._save_emote()
         emo_raw = json.loads((card / "emotes.json").read_text(encoding="utf-8"))
         assert emo_raw.get("emotes", {}).get("default", {}).get("lines") == ["测试表情台词"], emo_raw
+        finally_done = True
     finally:
         _restore(card, orig)
         mm.rescan()
+    assert finally_done
     await app.stop()
 
 

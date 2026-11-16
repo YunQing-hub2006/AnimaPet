@@ -4,7 +4,7 @@
 
 用法::
 
-    python tools/migrate_yingpet.py [--source E:\\dsh-work\\YingPet-v4] [--dry-run]
+    python tools/migrate_yingpet.py [--source <YingPet-v4 源目录>] [--dry-run]
     python tools/migrate_yingpet.py --export-chara card.ying --out E:\\ying.chara.zip
     python tools/migrate_yingpet.py --import-chara E:\\mio.chara.zip [--activate]
 
@@ -214,8 +214,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="cmd")
 
     p_mig = sub.add_parser("migrate", help="config/state/chat_history 平移(默认)")
-    p_mig.add_argument("--source", default=r"E:\dsh-work\YingPet-v4",
-                       help="YingPet-v4 目录(只读), 默认 E:\\dsh-work\\YingPet-v4")
+    p_mig.add_argument("--source", default=r"<YingPet-v4 源目录>",
+                       help="YingPet-v4 目录(只读), 默认 <YingPet-v4 源目录>")
     p_mig.add_argument("--dry-run", action="store_true", help="只打印计划, 不写文件")
 
     p_exp = sub.add_parser("export-chara", help="card.* 角色卡 -> .chara zip")

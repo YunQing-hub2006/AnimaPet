@@ -64,8 +64,8 @@ class Bubble(QWidget):
         try:
             self._shown += 1
             self.label.setText(self._full[: self._shown])
-            self.label.adjustSize()
-            self.resize(self.label.size())
+            # 布局与尺寸交给 _reposition 一次做完(它内部已 adjustSize + resize),
+            # 原先这里再做一遍等于每个字两趟 QLabel 重排。
             self._reposition()
             if self._shown >= len(self._full):
                 self._timer.stop()

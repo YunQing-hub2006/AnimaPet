@@ -113,9 +113,12 @@ def test_registry_character_queries(mods_tree):
     reg.apply(mods)
     reg.active_char_id = "card.ying"
     assert reg.character("card.ying").system_prompt == "测试人设"
-    # 表情归属
+    # 表情归属(键为 <character>:<id> 命名空间)
     emotes = reg.character_emotes("card.ying")
-    assert "default" in emotes
+    assert "card.ying:default" in emotes
+    assert emotes["card.ying:default"].id == "default"
+    # 裸 id 查询(窗口 set_emotion 路径)命中专属表情
+    assert reg.emote("default").id == "default"
     # 行为
     behs = reg.character_behaviors("card.ying")
     assert "card.ying:behaviors" in behs

@@ -20,6 +20,7 @@ from PyQt6.QtGui import QAction, QCursor, QGuiApplication
 from PyQt6.QtWidgets import QLabel, QMenu, QWidget
 
 from anima.events import EventNames
+from anima.mods import loader
 from anima.plugins import rule_engine
 from anima.utils import log, theme
 from anima.window import animator, bubble
@@ -138,18 +139,9 @@ class PetWindow(QWidget):
         self.char = reg.character(self.config.get("mods.character", ""))
         if self.char is None and reg.characters:
             self.char = next(iter(reg.characters.values()))
-        idle_id = (self.char.idle_anim if self.char else "") or self.config.get("window.idle_anim", "")
-        talk_id = (self.char.talk_anim if self.char else "") or self.config.get("window.talk_anim", "")
-        idle_anim = reg.anim(idle_id)
-        talk_anim = reg.anim(talk_id)
-        if idle_anim is None and reg.anims:
-            idle_anim = next(iter(reg.anims.values()))
-        if talk_anim is None:
-            talk_anim = idle_anim or (next(iter(reg.anims.values())) if reg.anims else None)
         self.animator.set_size(self.display_size)
-        self.animator.set_frames(
-            idle_anim.frames(self.display_size) if idle_anim else [],
-            talk_anim.frames(self.display_size) if talk_anim else [])
+        idle_anim, talk_anim = self._current_anims()
+        self._install_frames(idle_anim, talk_anim)
         # 同步当前角色: 规则引擎做行为归属隔离, 注册表供 @idle.this 解析
         char_id = self.char.id if self.char else ""
         if self.engine is not None:
@@ -160,7 +152,47 @@ class PetWindow(QWidget):
             self.sit_timer.start(45 * 60 * 1000)
         else:
             self.sit_timer.stop()
-        _log.info("window refreshed: char=%s idle=%s talk=%s", char_id or None, idle_id, talk_id)
+        _log.info("window refreshed: char=%s idle=%s talk=%s", char_id or None,
+                  idle_anim.id if idle_anim else None,
+                  talk_anim.id if talk_anim else None)
+
+    def _current_anims(self):
+        """当前该用的 (idle, talk) 动画对象: 角色卡优先, 回落配置/首个动画。"""
+        reg = self.registry
+        idle_id = (self.char.idle_anim if self.char else "") or self.config.get("window.idle_anim", "")
+        talk_id = (self.char.talk_anim if self.char else "") or self.config.get("window.talk_anim", "")
+        idle_anim = reg.anim(idle_id)
+        talk_anim = reg.anim(talk_id)
+        if idle_anim is None and reg.anims:
+            idle_anim = next(iter(reg.anims.values()))
+        if talk_anim is None:
+            talk_anim = idle_anim or (next(iter(reg.anims.values())) if reg.anims else None)
+        return idle_anim, talk_anim
+
+    def _apply_frames(self, idle_anim, talk_anim):
+        """把当前能拿到的帧装上: 已缓存的给整组, 否则只有首帧。"""
+        size = self.display_size
+        self.animator.set_frames(loader.instant_frames(idle_anim, size),
+                                 loader.instant_frames(talk_anim, size))
+
+    def _install_frames(self, idle_anim, talk_anim):
+        """refresh 路径: 先出画, 没解码的整组丢后台。
+
+        整组同步解码就是冷启动/换角色卡时那 ~96ms 的主线程冻结
+        (实测见 tools/bench_anim.py), 所以这里只同步解第一帧(约 1ms)。
+        """
+        self._apply_frames(idle_anim, talk_anim)
+        loader.prefetch([idle_anim, talk_anim], self.display_size, self._on_frames_ready)
+
+    def _on_frames_ready(self):
+        """后台整组解码完成(已在主线程)。只重装, 不再 prefetch。
+
+        再 prefetch 会在素材缺失(缓存永远填不满)时反复起线程。
+        """
+        try:
+            self._apply_frames(*self._current_anims())
+        except Exception as e:
+            _log.warning("frames ready: %s", e)
 
     def _apply_skin(self):
         """把当前皮肤模组(ui.*)主题应用到头顶气泡, 热重载即时生效。"""

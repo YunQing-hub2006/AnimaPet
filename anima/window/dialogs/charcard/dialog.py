@@ -552,7 +552,14 @@ class CardManagerDialog(QDialog):
                 if getattr(p, "character", "") == self.current_id]
 
     def _current_idle_pack(self):
-        return self.registry.idle_packs.get(self.cmb_idle_pack.currentData())
+        # 台词包在注册表里按 <character>:<id> 命名空间收纳, 下拉里存的是裸 id
+        pid = self.cmb_idle_pack.currentData()
+        p = self.registry.idle_packs.get(pid)
+        if p is None and pid:
+            p = next((x for x in self.registry.idle_packs.values()
+                      if x.id == pid and getattr(x, "character", "") == self.current_id),
+                     None)
+        return p
 
     def _load_idle(self):
         cid = self.current_id
@@ -614,7 +621,14 @@ class CardManagerDialog(QDialog):
                 if getattr(m, "character", "") == self.current_id]
 
     def _current_beh_mod(self):
-        return self.registry.behaviors.get(self.cmb_beh_mod.currentData())
+        # 行为模组按 <character>:<id> 命名空间收纳, 下拉里存的是裸 id
+        bid = self.cmb_beh_mod.currentData()
+        m = self.registry.behaviors.get(bid)
+        if m is None and bid:
+            m = next((x for x in self.registry.behaviors.values()
+                      if x.id == bid and getattr(x, "character", "") == self.current_id),
+                     None)
+        return m
 
     def _load_behaviors(self):
         self.cmb_beh_mod.blockSignals(True)
@@ -1024,11 +1038,12 @@ class CardManagerDialog(QDialog):
         cid = self.current_id
         self.emote_list.blockSignals(True)
         self.emote_list.clear()
-        for eid, e in self.registry.character_emotes(cid).items():
+        for key, e in self.registry.character_emotes(cid).items():
             owned = getattr(e, "character", "") == cid
-            label = "%s  [%s]%s" % (e.name, eid, "" if owned else " (全局)")
+            label = "%s  [%s]%s" % (e.name, e.id, "" if owned else " (全局)")
             item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, eid)
+            # 存注册表键(命名空间后), _current_emote 用它反查
+            item.setData(Qt.ItemDataRole.UserRole, key)
             self.emote_list.addItem(item)
         self.emote_list.blockSignals(False)
         if self.emote_list.count():
@@ -1038,7 +1053,7 @@ class CardManagerDialog(QDialog):
         item = self.emote_list.currentItem()
         if item is None:
             return None
-        return self.registry.emote(str(item.data(Qt.ItemDataRole.UserRole)))
+        return self.registry.emotes.get(str(item.data(Qt.ItemDataRole.UserRole)))
 
     def _on_emote_selected(self, item, _prev=None):
         e = self._current_emote()

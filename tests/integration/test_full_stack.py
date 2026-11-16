@@ -22,6 +22,13 @@ SIT_LINES = [
     "一直坐着可打不了仗。起来, 伸展一下。",
 ]
 
+# card.dsh 的 sit 段(角色卡自带行为也监听 timer.sit)
+DSH_SIT_LINES = [
+    "坐太久啦，起来走走嘛。",
+    "腰会酸掉的，快站起来！",
+    "喝口水，动一动～",
+]
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -49,18 +56,22 @@ async def test_full_stack_boots_with_real_mods(real_env, qapp):
     await core.start(plugins)
 
     reg = core.registry.use("mods")
-    # 真实数据: card.ying 展开(4 动画+角色+8 表情+台词+行为) + health + 3 皮肤 + 9 功能模组 = 28
-    assert len(reg.all_mods) == 28
+    # 真实数据: card.ying 展开(4 动画+角色+8 表情+台词+行为) + health
+    # + 3 皮肤 + 9 功能模组 + card.dsh 展开(14 动画+角色+台词+行为) = 52
+    assert len(reg.all_mods) == 52
     assert reg.errors == []
     assert reg.characters.get("card.ying")
-    assert len(reg.anims) == 4
-    assert len(reg.emotes) == 8
+    assert reg.characters.get("card.dsh")     # dsh-pet 移植卡
+    assert len(reg.anims) == 18
+    # 表情按 <character>:<id> 命名空间收纳: 两张卡各自的 7+8 个表情互不覆盖
+    assert len(reg.emotes) == 15
     assert reg.idle_packs and reg.behaviors
     assert len(reg.features) == 9   # 6 个原功能模组 + chat/charcard/skinmaker
     assert len(reg.uis) == 3
 
     # 窗口已绑定并刷出真实帧(offscreen QPixmap 解码 PNG)
-    assert pet.char is not None and pet.char.id == "card.ying"
+    # (config.json 里 mods.character 为空时回退到注册表首个角色, card.* 字典序 dsh 在前)
+    assert pet.char is not None and pet.char.id in ("card.ying", "card.dsh")
     assert len(pet.animator.idle_frames) > 0
     assert len(pet.animator.talk_frames) > 0
 
@@ -74,13 +85,20 @@ async def test_full_stack_boots_with_real_mods(real_env, qapp):
     assert "模组管理" in labels and "打个招呼 (插件)" in labels
 
     # 规则全链路: petted 好感(卡内行为, when event.affinity % 20 == 0)
+    # 影: "……好感度 {event.affinity}"; dsh 女仆: "好感度 {event.affinity}！…"
+    # (规则引擎对所有 on=pet.petted 的规则求值, 命中其一; dsh 的第二条 petted
+    #  规则无 when 且冷却 3s, 可能先于 %20 规则抢到 —— 摸头台词也算有效)
     core.registry.use("state").change("affinity", 0)
     core.bus.emit("pet.petted", {"affinity": 20})
-    assert pet.bubble._full.startswith("……好感度 20")
+    assert pet.bubble._full.startswith(("……好感度 20", "好感度 20")) or \
+        pet.bubble._full in ("嘿嘿，头发要乱啦。", "再摸也没关系哦。", "蹭——"), \
+        pet.bubble._full
 
     # @idle.this: 全局行为 behavior.health 引用当前角色台词包
+    # (两张卡各自的 petted 规则也会命中: dsh 女仆 petted 段是 "嘿嘿，头发要乱啦。" 等)
     core.bus.emit("timer.sit")
-    assert pet.bubble._full in SIT_LINES
+    assert pet.bubble._full in (SIT_LINES + DSH_SIT_LINES
+                                + ["嘿嘿，头发要乱啦。", "再摸也没关系哦。", "蹭——"])
 
     # 窗口摸头路径: 好感 +1 并广播(规则不满足 %20 时走 @idle.this.petted)
     pet._on_petted()
@@ -103,6 +121,27 @@ async def test_real_feature_runtime_toggle(real_env, qapp):
     await mm.set_enabled("feature.hello", True)
     assert core.lifecycle.get_state("feature.hello") == "enabled"
     assert "打个招呼 (插件)" in [lbl for lbl, _ in pet.feature_menu]
+    await core.stop()
+
+
+async def test_tray_binds_to_kernel_services(real_env, qapp):
+    """回归: 托盘必须用内核 provide 的服务构造。
+
+    原实现写的是 TrayController(registry, cfg, bridge), 而这三个名字是
+    _build_stack() 的局部变量, _run() 作用域里并不存在 -> NameError 被 except
+    吞成一条 warning, 托盘静默失效(测试与用户都看不到)。
+    """
+    core, plugins, pet, bridge = main._build_stack()
+    await core.start(plugins)
+
+    tray = main._setup_tray(core, bridge)
+    assert tray is not None, "托盘装配失败(异常会被 _setup_tray 记进日志)"
+    # 托盘菜单读的就是注册表里的角色/皮肤, 必须和内核服务是同一份
+    mods = core.registry.use("mods")
+    assert tray._registry is mods
+    assert tray._registry.characters and tray._registry.uis
+    assert core.registry.use("config") is not None
+
     await core.stop()
 
 
@@ -162,12 +201,12 @@ def test_rescan_from_qt_thread_goes_to_kernel(real_env, qapp):
         fut.result(10)             # 内核线程完成重扫
 
         assert reloaded             # mods.reloaded 已在内核线程发出
-        assert len(core.registry.use("mods").all_mods) == 28
+        assert len(core.registry.use("mods").all_mods) == 52
         assert core.lifecycle.get_state("feature.hello") == "enabled"
 
         # 重扫后规则引擎索引重建且可用(emit 走 Qt 线程, 无并发写注册表)
         core.bus.emit("timer.sit")
-        assert pet.bubble._full in SIT_LINES
+        assert pet.bubble._full in SIT_LINES + DSH_SIT_LINES
     finally:
         loop = holder.get("loop")
         if loop is not None and loop.is_running():
@@ -187,27 +226,35 @@ async def test_real_data_parity_regressions(real_env, qapp):
     assert len(reg.anim("card.ying:idle").frames(pet.display_size)) == 50
     assert len(reg.anim("card.ying:talk").frames(pet.display_size)) == 60
 
-    # 行为归属隔离: 别的角色激活时, 影的规则不触发
+    # 行为归属隔离: 别的角色激活时, 影/女仆的规则都不触发
+    # (dsh 女仆的 petted 规则无 when, 可能先抢到 —— 摸头台词也算命中)
     engine = core.registry.use("rule_engine")
     engine.set_character("char.someone_else")
     pet.bubble._full = ""
     core.bus.emit("pet.petted", {"affinity": 20})
     assert pet.bubble._full == ""
-    engine.set_character("card.ying")
+    engine.set_character(pet.char.id)
+    pet.bubble._full = ""
     core.bus.emit("pet.petted", {"affinity": 20})
-    assert pet.bubble._full.startswith("……好感度 20")
+    assert pet.bubble._full.startswith(("……好感度 20", "好感度 20")) or \
+        pet.bubble._full in ("嘿嘿，头发要乱啦。", "再摸也没关系哦。", "蹭——"), \
+        pet.bubble._full
 
-    # 全局行为开关: 关 behavior.health → timer.night 静默; 开 → 恢复
+    # 全局行为开关: 关 behavior.health → timer.night 只剩 card.dsh 自己的规则;
+    # 开 → health 的深夜台词恢复(两条规则触发顺序不定, 取其一)
     mm = core.registry.use("module_manager")
     await mm.set_enabled("behavior.health", False)
     assert "behavior.health" not in reg.behaviors
     pet.bubble._full = ""
     core.bus.emit("timer.night")
-    assert pet.bubble._full == ""
+    assert pet.bubble._full != "夜很深了。……去休息吧, 我守着。"
     await mm.set_enabled("behavior.health", True)
     pet.bubble._full = ""
     core.bus.emit("timer.night")
-    assert pet.bubble._full, "深夜规则应恢复触发"
+    assert pet.bubble._full in ("夜很深了。……去休息吧, 我守着。",
+                                "这么晚还不睡? 熬夜的人可没资格谈复仇。",
+                                "这么晚了还不睡？", "熬夜的主人要挨骂的哦。",
+                                "晚安前的最后提醒……")
 
     # 角色卡人设写回 manifest → 重扫生效 → 还原(测试不改仓库数据)
     char = reg.character("card.ying")

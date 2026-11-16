@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """window 三件套测试(offscreen): 构造注入、动作注册、交互事件、表现 API。"""
 import json
+import threading
+import time
 
 import pytest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel
 
 from anima.events import EventNames
 from anima.mods.loader import BehaviorMod, CharacterMod, IdlePack
@@ -155,6 +157,90 @@ def test_animator_state_machine(env, qapp):
     anim.play_anim("no_such_anim")
     assert anim.mode == "idle"
     win.close()
+
+
+class _CountingLabel(QLabel):
+    """记录每一次 setPixmap(用于验证"同一帧不重复画")。"""
+
+    def __init__(self):
+        super().__init__()
+        self.painted = []
+
+    def setPixmap(self, pm):
+        self.painted.append(pm)
+        super().setPixmap(pm)
+
+
+def test_animator_skips_redundant_repaint(qapp):
+    """同一张帧不重复 setPixmap。
+
+    静态表情(单图无动画)与单帧动画每 80~90ms 拿到的都是同一个 QPixmap 对象;
+    修复前实测 100 次 tick 里有 99 次内容完全没变, 却照样触发 update()
+    让整个半透明窗口重新合成。
+    """
+    from PyQt6.QtGui import QPixmap
+
+    lab = _CountingLabel()
+    anim = Animator(lab, None, _FakeBus(), 180)
+    anim.anim_timer.stop()
+    single = QPixmap(4, 4)
+    anim.play_frames = [single]
+    anim.mode = "anim"
+    for _ in range(10):
+        anim.advance()
+    assert len(lab.painted) == 1               # 单帧动画只画一次
+    assert anim._last_pm is single
+
+    # 交替帧每次内容都不同 -> 每次都真的重画
+    lab2 = _CountingLabel()
+    anim2 = Animator(lab2, None, _FakeBus(), 180)
+    anim2.anim_timer.stop()
+    anim2.play_frames = [QPixmap(4, 4), QPixmap(4, 4)]
+    anim2.mode = "anim"
+    for _ in range(10):
+        anim2.advance()
+    assert len(lab2.painted) == 10
+
+
+def test_prefetch_fills_frame_group(qapp, tmp_path):
+    """整组帧由后台解码补齐: 主线程只同步解第一帧。
+
+    冷启动/换角色卡时整组同步解码实测 ~96ms(tools/bench_anim.py),
+    所以 instant_frames 只给首帧, 其余交给 prefetch, 解完经 queued signal
+    回到主线程写进缓存。
+    """
+    from PyQt6.QtGui import QPixmap
+
+    from anima.mods import loader as L
+
+    frames_dir = tmp_path / "anims" / "idle" / "frames"
+    frames_dir.mkdir(parents=True)
+    for i in range(5):
+        pm = QPixmap(8, 8)
+        pm.fill()
+        assert pm.save(str(frames_dir / ("frame_%04d.png" % i)))
+
+    anim = L.AnimMod(id="t:idle", dir=str(tmp_path / "anims" / "idle"))
+    size = 16
+    L.clear_frame_cache()
+
+    # 未缓存: 只给首帧, 且绝不把"只有一帧"的结果写进缓存
+    assert len(L.instant_frames(anim, size)) == 1
+    assert not L.is_cached(anim, size)
+    # 同步兜底路径仍然完整(reg.anim(...).frames() 的既有语义不能变)
+    assert len(anim.frames(size)) == 5
+
+    # 后台路径: 解完整组并回主线程安装
+    L.clear_frame_cache()
+    done = threading.Event()
+    L.prefetch([anim], size, done.set)
+    deadline = time.time() + 5.0
+    while not done.is_set() and time.time() < deadline:
+        qapp.processEvents()          # queued signal 靠事件循环投递
+        time.sleep(0.01)
+    assert done.is_set(), "后台预解码未在 5s 内回调"
+    assert L.is_cached(anim, size)
+    assert len(L.instant_frames(anim, size)) == 5
 
 
 def test_bubble_typing_and_theme(env, qapp):
